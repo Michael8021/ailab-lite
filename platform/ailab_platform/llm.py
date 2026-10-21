@@ -11,7 +11,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache
 from typing import Any
 
 import httpx
@@ -268,7 +268,7 @@ class MockLLM(LLMClient):
         return LLMResponse(content="沙箱命令已执行完成。", usage=usage)
 
 
-@lru_cache(maxsize=None)
+@cache
 def llm_for(model_id: str) -> LLMClient:
     """The client for a catalog model: its own upstream URL, key and upstream model name."""
     spec = get_catalog().get(model_id)

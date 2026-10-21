@@ -138,9 +138,15 @@ class RedisQueue(JobQueue):
             self._groups.discard(name)
             return attempt()
 
+    # XACK and XDEL must be atomic: a crash between them leaves an entry that
+    # is already acked but still returned by XRANGE (outstanding()/reaper).
+    _ACK = (
+        "redis.call('XACK', KEYS[1], ARGV[1], ARGV[2]); "
+        "return redis.call('XDEL', KEYS[1], ARGV[2])"
+    )
+
     def ack(self, name: str, message: Message) -> None:
-        self.client.xack(name, self.GROUP, message.id)
-        self.client.xdel(name, message.id)
+        self.client.eval(self._ACK, 1, name, self.GROUP, message.id)
 
     def outstanding(self, name: str) -> list[dict]:
         return [self._decode(e)[1] for e in self.client.xrange(name, "-", "+")]

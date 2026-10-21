@@ -125,7 +125,11 @@ class DockerSandbox(SandboxProvider):
             sandbox_id,
             "sh",
             "-c",
-            'mkdir -p "$(dirname "$1")" && cat > "$1"',
+            'p="$1"; parent=$(dirname "$p"); '
+            'rp=$(realpath -m "$parent") || exit 1; '
+            'case "$rp" in /workspace|/workspace/*) ;; *) exit 1;; esac; '
+            '[ ! -L "$p" ] || exit 1; '
+            'mkdir -p "$parent" && cat > "$p"',
             "sh",
             path,
         ]

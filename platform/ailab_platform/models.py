@@ -7,7 +7,7 @@ internal API instead of importing this module.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -26,7 +26,7 @@ def new_id(prefix: str) -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -58,7 +58,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    tokens: Mapped[list["ApiToken"]] = relationship(back_populates="user")
+    tokens: Mapped[list[ApiToken]] = relationship(back_populates="user")
 
 
 class ApiToken(Base):
@@ -92,10 +92,10 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    events: Mapped[list["RunEvent"]] = relationship(
+    events: Mapped[list[RunEvent]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="RunEvent.seq"
     )
-    artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
+    artifacts: Mapped[list[Artifact]] = relationship(back_populates="run")
 
 
 class RunEvent(Base):

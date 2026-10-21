@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from ailab_platform.agent.loop import AgentLoop
 from ailab_platform.config import settings
 from ailab_platform.llm import INVALID_ARGUMENTS_KEY, LLMResponse, ToolCall
@@ -81,7 +79,7 @@ def test_tool_call_with_invalid_json_is_not_executed() -> None:
     platform, broker = _run(llm)
 
     assert broker.put_calls == []  # no empty file written
-    result = [p for t, p in platform.events if t == "agent.tool_result"][0]
+    result = next(p for t, p in platform.events if t == "agent.tool_result")
     assert result["ok"] is False and "valid JSON" in result["error"]
     # the model sees its own malformed text and the error
     assert llm.seen_messages[1][-2]["tool_calls"][0]["function"]["arguments"].startswith('{"path"')
@@ -93,7 +91,7 @@ def test_reasoning_is_echoed_only_when_enabled(monkeypatch) -> None:
         step = ToolCall(id="c1", name="list_files", arguments={"path": "/nope"})
         llm = ScriptedLLM([LLMResponse(tool_calls=[step], reasoning_content="why"), LLMResponse(content="x")])
         _run(llm)
-        assistant = [m for m in llm.seen_messages[1] if m["role"] == "assistant"][0]
+        assistant = next(m for m in llm.seen_messages[1] if m["role"] == "assistant")
         assert ("reasoning_content" in assistant) is enabled
 
 
@@ -101,7 +99,7 @@ def test_tool_call_events_do_not_store_huge_arguments() -> None:
     big = ToolCall(id="c1", name="write_file", arguments={"path": "/workspace/a", "content": "x" * 50_000})
     llm = ScriptedLLM([LLMResponse(tool_calls=[big]), LLMResponse(content="done")])
     platform, _ = _run(llm)
-    event = [p for t, p in platform.events if t == "agent.tool_call"][0]
+    event = next(p for t, p in platform.events if t == "agent.tool_call")
     assert len(event["arguments"]["content"]) < 600
 
 
@@ -163,7 +161,7 @@ def test_deliver_file_outside_outputs_is_refused_before_reaching_the_broker() ->
     llm = ScriptedLLM([LLMResponse(tool_calls=[bad]), LLMResponse(content="done")])
     platform, _ = _run(llm, broker=broker)
     assert broker.commits == []
-    result = [p for t, p in platform.events if t == "agent.tool_result"][0]
+    result = next(p for t, p in platform.events if t == "agent.tool_result")
     assert result["ok"] is False and "outputs" in result["error"]
 
 

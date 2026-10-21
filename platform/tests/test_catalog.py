@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC
 from pathlib import Path
 
 import httpx
@@ -66,11 +67,15 @@ def test_missing_or_broken_file_is_an_error_not_a_silent_default(tmp_path) -> No
 
 def test_a_model_without_its_key_is_hidden(monkeypatch) -> None:
     monkeypatch.delenv("AILAB_KEY_X", raising=False)
-    cat = parse_catalog({"models": [
-        _entry(id="needs-key", provider="openai", base_url="http://gw", api_key_env="AILAB_KEY_X", default=True),
-        _entry(id="free-gateway", provider="openai", base_url="http://internal-gw"),  # keyless upstream is fine
-        _entry(id="demo"),
-    ]})
+    cat = parse_catalog(
+        {
+            "models": [
+                _entry(id="needs-key", provider="openai", base_url="http://gw", api_key_env="AILAB_KEY_X", default=True),
+                _entry(id="free-gateway", provider="openai", base_url="http://internal-gw"),  # keyless upstream is fine
+                _entry(id="demo"),
+            ]
+        }
+    )
     assert [m.id for m in cat.available()] == ["free-gateway", "demo"]
     assert cat.default_id() == "free-gateway"  # the marked default is hidden: fall back to the first usable one
     monkeypatch.setenv("AILAB_KEY_X", "sk-123")
@@ -126,14 +131,15 @@ def test_unusable_models_are_refused(api, model) -> None:
 
 
 def test_quota_counts_weighted_tokens(api, monkeypatch) -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from sqlalchemy import select
 
     from ailab_platform.db import SessionLocal
     from ailab_platform.models import User
     from ailab_platform.quota import tokens_used_since
-    from sqlalchemy import select
 
-    day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == settings.dev_user_email))
         before = tokens_used_since(db, user.id, day)
@@ -170,7 +176,9 @@ def test_llm_for_builds_clients_from_the_catalog(monkeypatch) -> None:
     with pytest.raises(LLMError):
         llm_for("not-in-the-catalog")
 
-    cat = parse_catalog({"models": [_entry(id="real", provider="openai", base_url="http://gw/v1/", api_key_env="AILAB_KEY_REAL", upstream_model="up-name")]})
+    cat = parse_catalog(
+        {"models": [_entry(id="real", provider="openai", base_url="http://gw/v1/", api_key_env="AILAB_KEY_REAL", upstream_model="up-name")]}
+    )
     monkeypatch.setattr(catalog_mod, "get_catalog", lambda: cat)
     monkeypatch.setattr("ailab_platform.llm.get_catalog", lambda: cat)
     monkeypatch.setenv("AILAB_KEY_REAL", "sk-real")

@@ -56,8 +56,23 @@ class SandboxProvider(ABC):
     def release(self, sandbox_id: str) -> None: ...
 
     def file_size(self, sandbox_id: str, path: str) -> int:
-        """Size of a regular file, without transferring it. Raises if it is not one."""
-        res = self.exec(sandbox_id, f"[ -f {shlex.quote(path)} ] && stat -c %s {shlex.quote(path)}", timeout=15)
+        """Size of a regular file, without transferring it.
+
+        ``[ -f ]`` and ``stat`` follow symlinks, so a link created by the agent
+        could point outside ``/workspace``. Resolve the parent and reject the
+        link before reading. (A determined agent could still race the check;
+        the provider boundary is the real security boundary.)
+        """
+        q = shlex.quote(path)
+        cmd = (
+            f"parent=$(dirname {q}); "
+            'rp=$(realpath -m "$parent") || exit 1; '
+            'case "$rp" in /workspace|/workspace/*) ;; *) exit 1;; esac; '
+            f"[ ! -L {q} ] || exit 1; "
+            f"[ -f {q} ] || exit 1; "
+            f"stat -c %s {q}"
+        )
+        res = self.exec(sandbox_id, cmd, timeout=15)
         if res.exit_code != 0 or not res.stdout.strip().isdigit():
             raise SandboxError(f"not a regular file in the sandbox: {path}")
         return int(res.stdout.strip())

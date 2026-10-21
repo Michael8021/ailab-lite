@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ailab_platform.broker.service import LeaseManager
 from ailab_platform.sandbox.mock import MockSandbox
@@ -56,7 +56,7 @@ def test_expired_lease_is_reaped_even_after_its_redis_ttl_elapsed() -> None:
 
     # The lease is now past its expiry. The record has to outlive that moment,
     # otherwise cleanup_once (which finds leases by reading them) never sees it.
-    lease["expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    lease["expires_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     manager._save(lease)
     fake.advance(2)
 
@@ -127,7 +127,7 @@ def test_inputs_come_from_the_run_not_from_the_caller() -> None:
 
 def test_unscanned_input_blocks_the_lease() -> None:
     api = _ApiStub({"f1": {"status": "pending", "filename": "a.txt", "bytes": b"x"}}, run_inputs=["f1"])
-    manager, provider, _ = _manager_with(api)
+    manager, _provider, _ = _manager_with(api)
     with pytest.raises(LeaseError, match="pending"):
         manager.create("run_y")
     assert manager.active_leases() == []
@@ -191,9 +191,9 @@ from ailab_platform.broker.service import CapacityError  # noqa: E402
 
 
 def test_expired_lease_is_unusable_even_while_its_record_lingers() -> None:
-    manager, provider, fake = _manager()
+    manager, provider, _fake = _manager()
     lease = manager.create("run_e", ttl_seconds=60)
-    lease["expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    lease["expires_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     manager._save(lease)
 
     for call in (

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from ailab_platform.api.main import app
 from ailab_platform.db import SessionLocal
 from ailab_platform.models import Run, RunEvent, RunStatus
 from ailab_platform.run_state import InvalidTransition, transition_run
-from sqlalchemy import select
 
 AUTH = {"Authorization": "Bearer test-token"}
 SERVICE = {"X-Service-Token": "test-service"}

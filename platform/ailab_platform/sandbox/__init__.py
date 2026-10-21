@@ -11,12 +11,12 @@ from .mock import MockSandbox
 from .opensandbox import OpenSandboxProvider
 
 __all__ = [
-    "ExecResult",
-    "SandboxError",
-    "SandboxProvider",
     "DockerSandbox",
+    "ExecResult",
     "MockSandbox",
     "OpenSandboxProvider",
+    "SandboxError",
+    "SandboxProvider",
     "get_provider",
     "reset_provider",
 ]

@@ -13,8 +13,8 @@ from fastapi import FastAPI
 from ..catalog import get_catalog
 from ..clients import AsyncPlatformClient
 from ..config import settings
-from ..queue import Message, get_queue, run_lock_key
 from ..models import RunStatus
+from ..queue import Message, get_queue, run_lock_key
 from .loop import AgentLoop
 from .prompts import system_prompt
 
@@ -68,7 +68,7 @@ async def handle_message(loop: AgentLoop, queue, msg: Message) -> None:
     try:
         try:
             await asyncio.wait_for(loop.process(run_id, attempt=attempt), timeout=settings.run_timeout_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.error("run %s hit the %ss timeout", run_id, settings.run_timeout_seconds)
             try:
                 await platform.set_run_status(

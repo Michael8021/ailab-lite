@@ -11,13 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from ..config import settings
 from ..catalog import get_catalog
+from ..config import settings
 from ..db import SessionLocal, init_db
 from ..deps import current_user
 from ..models import User
 from ..queue import get_queue
-from ..storage import get_storage
 from .reaper import reap_forever
 from .routes_files import router as files_router
 from .routes_internal import router as internal_router

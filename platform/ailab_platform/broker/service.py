@@ -9,7 +9,7 @@ import mimetypes
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import redis
@@ -42,7 +42,7 @@ def _safe_name(name: str) -> str:
 
 
 def _expired(lease: dict) -> bool:
-    return datetime.fromisoformat(lease["expires_at"]) <= datetime.now(timezone.utc)
+    return datetime.fromisoformat(lease["expires_at"]) <= datetime.now(UTC)
 
 
 def _unique_name(name: str, used: set[str]) -> str:
@@ -84,7 +84,7 @@ class LeaseManager:
 
     def _save(self, lease: dict) -> None:
         expires_at = datetime.fromisoformat(lease["expires_at"])
-        remaining = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        remaining = int((expires_at - datetime.now(UTC)).total_seconds())
         # Keep the record past expiry: cleanup_once finds expired leases by reading
         # them, so a key that vanishes exactly at expires_at would never be reaped.
         ttl = max(1, remaining) + LEASE_RECORD_GRACE_SECONDS
@@ -114,7 +114,7 @@ class LeaseManager:
     ) -> dict:
         self._release_expired()  # an expired lease still holds a sandbox: free it before counting capacity
         with self._lock:
-            existing = next((l for l in self.active_leases() if l["run_id"] == run_id and not _expired(l)), None)
+            existing = next((lease for lease in self.active_leases() if lease["run_id"] == run_id and not _expired(lease)), None)
             if existing:
                 return existing
             active = self.active_leases()
@@ -130,7 +130,7 @@ class LeaseManager:
                 raise LeaseError(f"could not acquire sandbox: {exc}") from exc
 
             ttl = ttl_seconds or settings.sandbox_ttl_seconds
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             lease = {
                 "lease_id": lease_id,
                 "run_id": run_id,

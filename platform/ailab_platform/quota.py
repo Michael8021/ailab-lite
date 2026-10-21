@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -28,7 +28,7 @@ def tokens_used_since(db: Session, user_id: str, since: datetime) -> int:
 
 def usage_summary(db: Session, user_id: str) -> dict:
     """What the user has used against each limit (tokens are weighted, see tokens_used_since)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month = day.replace(day=1)
     return {
@@ -40,7 +40,7 @@ def usage_summary(db: Session, user_id: str) -> dict:
 
 
 def enforce_token_quota(db: Session, user_id: str) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     day = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month = day.replace(day=1)
     if tokens_used_since(db, user_id, day) >= settings.daily_token_limit:

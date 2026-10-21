@@ -24,7 +24,7 @@ T2/T3/T4 尚未就绪的依赖用可替换适配器顶替（见文末对照表�
   （沙箱内 DNS 解析失败）、1 CPU / 1.5 GiB 资源限制。
 - `scripts/e2e_file_demo.py`：上传文件 → Worker 解析（text，29 字符）→ 带 `file_id` 建 Run →
   输入注入 `/workspace/inputs` → 产出 `answer.md`。
-- `pytest`：144 个测试通过（另有 6 个真实 Redis 变体默认跳过）。
+- `pytest`：147 个测试通过（另有 6 个真实 Redis 变体默认跳过），覆盖率 73.6%（门槛 70%）。
 - Portal：`/`、`/runs/[id]`、`/files` 均返回 200，SSE 时间线可用。
 - **k3s 部署**：`deploy/k8s/platform.yaml` 已实际跑通（5 个 Pod Running，API NodePort 30080，
   Broker hostNetwork 8081），k3s 版 e2e 同样产出 `ailab-demo.pptx`。
@@ -273,16 +273,23 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 | OpenSandbox + gVisor | OpenSandbox dev server（Docker/runc） | ✅ API 链路；k8s 控制面 + gVisor 待 T2 |
 | Keycloak | 静态 dev token | 后续接 OIDC |
 
-## 测试
+## 测试与 CI
 
 ```bash
 cd ailab-lite/platform
-.venv/bin/pytest -q
+.venv/bin/pytest -q --cov=ailab_platform --cov-report=term-missing
+.venv/bin/ruff check .
 ```
+
+覆盖率门槛 70%（`pyproject.toml` 的 `[tool.coverage.report]`）；lint 规则同样在 `pyproject.toml`
+（`E/F/I/UP/RUF`，FastAPI 的 `Depends()` 默认参数是框架约定，不按 B008 报错）。
+`.github/workflows/ci.yml` 在每次 push/PR 上跑 Python 测试（带 Redis service，跑真实 Streams 分支）+ 覆盖率 + ruff、Portal 的
+`npm ci && npm run build`，以及 `shellcheck`（`deploy.sh`、`tests/*.sh`、`platform/scripts/*.sh`）。
 
 覆盖：健康检查、鉴权、Run 生命周期/取消、事件历史、内部服务令牌、文件上传下载、
 Worker 文本解析/EICAR、Mock LLM 的 PPT 工具序列、上传隔离（pending→ready/rejected）、
-Broker 租约 TTL 与过期回收（假 Redis）、技能提示词、LLM 重试、Agent 循环、队列语义、reaper。
+Broker 租约 TTL 与过期回收（假 Redis）、技能提示词、LLM 重试、Agent 循环、队列语义、reaper、
+沙箱符号链接逃逸与 Redis ack 原子性。
 
 ## 目录
 

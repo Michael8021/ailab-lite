@@ -30,7 +30,7 @@ if ! command -v k3s >/dev/null; then
   curl -sfL https://get.k3s.io -o /tmp/k3s-dl/install.sh
   INSTALL_K3S_VERSION=$K3S_VERSION sh /tmp/k3s-dl/install.sh
 fi
-for i in $(seq 1 60); do $K get node 2>/dev/null | grep -q ' Ready' && break; sleep 2; done
+for _ in $(seq 1 60); do $K get node 2>/dev/null | grep -q ' Ready' && break; sleep 2; done
 $K get node -o wide
 
 log "3/4 注册 runsc 到 k3s 的 containerd"
@@ -40,7 +40,7 @@ CDIR=/var/lib/rancher/k3s/agent/etc/containerd
 if ! k3s crictl info 2>/dev/null | grep -q '"runsc"'; then
   install -D -m 0644 "$ROOT/k3s/runsc.toml" "$CDIR/config-v3.toml.d/runsc.toml"
   systemctl restart k3s
-  for i in $(seq 1 60); do $K get node 2>/dev/null | grep -q ' Ready' && break; sleep 2; done
+  for _ in $(seq 1 60); do $K get node 2>/dev/null | grep -q ' Ready' && break; sleep 2; done
 fi
 k3s crictl info | grep -q '"runsc"' && pass "containerd 已注册 runsc" || fail "containerd 没有 runsc 运行时"
 $K apply -k "$ROOT/deploy/overlays/lite"

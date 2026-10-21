@@ -1,5 +1,7 @@
 # AILab 简易版：分组件测试 + 协同测试
 
+[![CI](https://github.com/shijunan126-creator/ailab-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/shijunan126-creator/ailab-lite/actions/workflows/ci.yml)
+
 目标：在本机（2 vCPU / 7.7 GB，x86_64，无 KVM）上按组验证 AILab 的关键组件，**组件与大集群一致**，
 只在 `deploy/overlays/lite` 里改数值。不跑完整平台，一次只起一组，测完拆掉。
 

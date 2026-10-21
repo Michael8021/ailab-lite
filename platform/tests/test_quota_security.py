@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from ailab_platform.api.main import app
 from ailab_platform.config import Settings, settings
 from ailab_platform.db import SessionLocal
 from ailab_platform.models import FileObject, User
 from ailab_platform.quota import tokens_used_since
-from sqlalchemy import select
 
 AUTH = {"Authorization": "Bearer test-token"}
 SERVICE = {"X-Service-Token": "test-service"}
@@ -23,7 +23,7 @@ def api():
 
 
 def _day_start() -> datetime:
-    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 # ---- quotas -----------------------------------------------------------------------------------
@@ -101,7 +101,7 @@ def test_lite_environments_tolerate_defaults(env) -> None:
 
 
 def test_production_refuses_defaults() -> None:
-    with pytest.raises(RuntimeError, match="DEV_TOKEN.*SERVICE_TOKEN"):
+    with pytest.raises(RuntimeError, match=r"DEV_TOKEN.*SERVICE_TOKEN"):
         _settings(env="prod", dev_token="dev-demo-token", service_token="dev-service-token").validate_secrets()
 
 

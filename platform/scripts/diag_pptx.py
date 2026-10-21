@@ -5,12 +5,12 @@ from pathlib import Path
 from pptx import Presentation
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "images/sbx-office/skills/pptx-builder/scripts"))
-from build import FONT, set_font  # noqa: E402
-from preview import check_overflow  # noqa: E402
+from build import set_font
+from preview import check_overflow
 
 
 def build(path):
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     outline = {
         "title": "AILab 简易版冒烟测试",

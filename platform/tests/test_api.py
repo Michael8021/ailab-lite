@@ -37,7 +37,7 @@ def test_run_lifecycle_and_events() -> None:
         assert detail["id"] == run["id"]
 
         history = c.get(f"/v1/runs/{run['id']}/events/history", headers=AUTH).json()
-        assert [e["type"] for e in history][0] == "run.created"
+        assert next(e["type"] for e in history) == "run.created"
 
         internal = c.get(f"/internal/runs/{run['id']}", headers=SERVICE)
         assert internal.status_code == 200

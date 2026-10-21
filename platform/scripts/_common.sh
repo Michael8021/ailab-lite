@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Shared by the k3s helper scripts:  . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 # Finds a kubeconfig and a kubectl without assuming whose machine this is.
 

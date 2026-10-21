@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,12 +30,12 @@ log = logging.getLogger("ailab.api.reaper")
 
 def _aware(dt: datetime | None) -> datetime | None:
     if dt is not None and dt.tzinfo is None:  # SQLite drops tzinfo
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
 def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict[str, int]:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cutoff = now - timedelta(seconds=settings.reaper_grace_seconds)
     stats = {"runs_requeued": 0, "runs_failed": 0, "files_requeued": 0}
 

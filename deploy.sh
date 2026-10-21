@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
 done
 
 # ---------------------------------------------------------------------------------------- output
-if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B= G= Y= R= N=; fi
+if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else B='' G='' Y='' R='' N=''; fi
 STEP=0
 step() { STEP=$((STEP + 1)); echo; echo "${B}[$STEP] $*${N}"; }
 ok()   { echo "    ${G}✓${N} $*"; }
@@ -57,6 +57,7 @@ warn() { echo "    ${Y}!${N} $*"; }
 die()  { echo; echo "${R}✗ $*${N}" >&2; exit 1; }
 run()  { if [ "$DRY" = 1 ]; then echo "    (dry-run) $*" >&2; else "$@"; fi; }
 JAR=
+rc=0
 trap 'rc=$?; [ -z "$JAR" ] || rm -f "$JAR"; [ $rc -eq 0 ] || echo "${R}deploy stopped at step $STEP (exit $rc). Fix the cause and run ./deploy.sh again: every step is safe to repeat.${N}" >&2' EXIT
 
 # ------------------------------------------------------------------------------------- helpers
@@ -121,7 +122,11 @@ preflight() {
   step "checking prerequisites"
   local missing=() c
   for c in docker curl openssl python3 base64 ss; do command -v "$c" >/dev/null 2>&1 || missing+=("$c"); done
-  command -v k3s >/dev/null 2>&1 || command -v kubectl >/dev/null 2>&1 || missing+=("k3s (or kubectl)")
+  if [ "$SKIP_BUILD" = 1 ]; then
+    command -v k3s >/dev/null 2>&1 || command -v kubectl >/dev/null 2>&1 || missing+=("k3s (or kubectl)")
+  else
+    command -v k3s >/dev/null 2>&1 || missing+=("k3s (image import; use --skip-build if already imported)")
+  fi
   [ "$WITH_PORTAL" = 1 ] && { command -v node >/dev/null 2>&1 || missing+=("node"); command -v npm >/dev/null 2>&1 || missing+=("npm"); }
   [ ${#missing[@]} -eq 0 ] || die "missing: ${missing[*]}  (install them, or use --no-portal if only node/npm are missing)"
   [ -n "${KUBECTL:-}" ] || die "no kubeconfig found (tried \$KUBECONFIG, ~/.kube/config, /etc/rancher/k3s/k3s.yaml): is k3s installed? see tests/t0_base.sh"

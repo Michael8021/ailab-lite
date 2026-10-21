@@ -8,7 +8,7 @@ compare-and-swap on the status we read, so two writers racing resolve to one win
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ def transition_run(
     if new_status not in ALLOWED.get(run.status, set()):
         raise InvalidTransition(f"{run.status} -> {new_status}")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     values: dict = {"status": new_status, "updated_at": now}
     if new_status == RunStatus.RUNNING and run.started_at is None:
         values["started_at"] = now

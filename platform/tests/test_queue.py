@@ -33,7 +33,7 @@ def _memory():
 def _redis():
     q = RedisQueue(os.environ["AILAB_TEST_REDIS_URL"])
     prefix = f"ailab:test:{uuid.uuid4().hex[:8]}"
-    q._test_keys = prefix  # noqa: SLF001
+    q._test_keys = prefix
     return q, time.sleep, f"{prefix}:q"
 
 

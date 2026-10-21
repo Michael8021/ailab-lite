@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Awaitable, TypeVar
+from collections.abc import Awaitable
+from typing import TypeVar
 
 from ..clients import AsyncBrokerClient, AsyncPlatformClient, ClientError
 from ..config import settings

@@ -7,3 +7,6 @@ node_modules/
 .next/
 *.log
 .env
+.coverage
+htmlcov/
+.ruff_cache/

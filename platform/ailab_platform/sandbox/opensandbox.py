@@ -119,6 +119,17 @@ class OpenSandboxProvider(SandboxProvider):
 
     def put_file(self, sandbox_id: str, path: str, data: bytes) -> None:
         path = _checked(path)
+        q = shlex.quote(path)
+        check = self.exec(
+            sandbox_id,
+            f'p={q}; parent=$(dirname "$p"); '
+            'rp=$(realpath -m "$parent") || exit 1; '
+            'case "$rp" in /workspace|/workspace/*) ;; *) exit 1;; esac; '
+            '[ ! -L "$p" ]',
+            timeout=15,
+        )
+        if check.exit_code != 0:
+            raise SandboxError(f"refusing to write through a symlink: {path}")
         sandbox = self._sandbox(sandbox_id)
         try:
             sandbox.files.write_file(path, data, mode=0o644)

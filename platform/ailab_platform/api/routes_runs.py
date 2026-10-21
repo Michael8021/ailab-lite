@@ -17,8 +17,8 @@ from ..db import SessionLocal
 from ..deps import current_user, get_db
 from ..events import append_event, list_events
 from ..models import FileObject, FileStatus, Run, RunEvent, RunStatus, User
-from ..quota import enforce_token_quota, usage_summary
 from ..queue import get_queue
+from ..quota import enforce_token_quota, usage_summary
 from ..run_state import transition_run
 from ..schemas import EventOut, RunCreate, RunDetail, RunOut
 from .serializers import run_dict
@@ -159,7 +159,6 @@ async def stream_events(
         run = db.get(Run, run_id)
         if run is None or run.user_id != user.id:
             raise HTTPException(status_code=404, detail="run not found")
-        current_status = run.status
 
     last_id = after
     if not last_id:

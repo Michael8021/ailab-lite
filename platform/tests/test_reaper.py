@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import delete, select
 
 from ailab_platform.api.reaper import reap_once
 from ailab_platform.config import settings
@@ -19,7 +20,6 @@ from ailab_platform.models import (
     new_id,
 )
 from ailab_platform.queue import InMemoryQueue, run_lock_key
-from sqlalchemy import delete, select
 
 
 @pytest.fixture()
@@ -44,7 +44,7 @@ def _run(db, status, **kw) -> Run:
     return run
 
 
-LATER = datetime.now(timezone.utc) + timedelta(seconds=10_000)
+LATER = datetime.now(UTC) + timedelta(seconds=10_000)
 
 
 def test_queued_run_without_a_message_is_requeued(db) -> None:
@@ -71,7 +71,7 @@ def test_run_waiting_in_the_queue_is_not_duplicated(db) -> None:
 
 def test_orphaned_running_run_is_failed(db) -> None:
     q = InMemoryQueue()
-    run = _run(db, RunStatus.RUNNING, started_at=datetime.now(timezone.utc))
+    run = _run(db, RunStatus.RUNNING, started_at=datetime.now(UTC))
     assert reap_once(db, q, now=LATER)["runs_failed"] == 1
     db.refresh(run)
     assert run.status == RunStatus.FAILED and "agent lost" in run.error
@@ -79,7 +79,7 @@ def test_orphaned_running_run_is_failed(db) -> None:
 
 def test_running_run_with_a_live_agent_is_left_alone(db) -> None:
     q = InMemoryQueue()
-    run = _run(db, RunStatus.RUNNING, started_at=datetime.now(timezone.utc))
+    run = _run(db, RunStatus.RUNNING, started_at=datetime.now(UTC))
     q.acquire_lock(run_lock_key(run.id), 60)
     assert reap_once(db, q, now=LATER)["runs_failed"] == 0
     db.refresh(run)
