@@ -36,10 +36,7 @@ def _arguments_json(arguments: dict) -> str:
 
 def _clip_arguments(arguments: dict, limit: int = 500) -> dict:
     """Keep run_events small: write_file content can be tens of KB."""
-    return {
-        k: (v[:limit] + f"...[+{len(v) - limit} chars]" if isinstance(v, str) and len(v) > limit else v)
-        for k, v in arguments.items()
-    }
+    return {k: (v[:limit] + f"...[+{len(v) - limit} chars]" if isinstance(v, str) and len(v) > limit else v) for k, v in arguments.items()}
 
 
 class AgentLoop:
@@ -172,9 +169,7 @@ class AgentLoop:
                 if await self._is_canceled(run_id):
                     raise RunCanceled()
 
-                response = await self._interruptible(
-                    run_id, llm.chat(messages, TOOLS, model, user_id=run.get("user_id"))
-                )
+                response = await self._interruptible(run_id, llm.chat(messages, TOOLS, model, user_id=run.get("user_id")))
                 if response.usage:
                     total_tokens += response.usage.get("prompt_tokens", 0) + response.usage.get("completion_tokens", 0)
                     try:
@@ -218,9 +213,7 @@ class AgentLoop:
                         {"step": step, "name": call.name, "arguments": _clip_arguments(call.arguments)},
                     )
                     try:
-                        result = await self._interruptible(
-                            run_id, execute_tool(call.name, call.arguments, lease_id, self.broker)
-                        )
+                        result = await self._interruptible(run_id, execute_tool(call.name, call.arguments, lease_id, self.broker))
                     except RunCanceled:
                         raise
                     except ToolError as exc:
@@ -288,9 +281,7 @@ class AgentLoop:
             log.exception("agent run %s failed", run_id)
             await self._event(run_id, "agent.error", {"error": f"{type(exc).__name__}: {exc}"})
             try:
-                await self.platform.set_run_status(
-                    run_id, RunStatus.FAILED, error=f"{type(exc).__name__}: {exc}"[:2000]
-                )
+                await self.platform.set_run_status(run_id, RunStatus.FAILED, error=f"{type(exc).__name__}: {exc}"[:2000])
             except Exception:
                 log.exception("could not mark run %s failed", run_id)
         finally:

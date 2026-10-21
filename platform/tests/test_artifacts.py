@@ -30,8 +30,14 @@ def _running_run(api) -> str:
 def _stage(data: bytes, name="out.md") -> dict:
     key = f"staging/lease_t/{hashlib.sha256(data).hexdigest()[:8]}/{name}"
     get_storage().put_bytes(key, data)
-    return {"staging_key": key, "filename": name, "content_type": "text/markdown", "size": len(data),
-            "sha256": hashlib.sha256(data).hexdigest(), "role": "output"}
+    return {
+        "staging_key": key,
+        "filename": name,
+        "content_type": "text/markdown",
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "role": "output",
+    }
 
 
 def _commit(api, run_id, body):

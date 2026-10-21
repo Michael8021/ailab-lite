@@ -89,12 +89,20 @@ def test_running_run_with_a_live_agent_is_left_alone(db) -> None:
 def test_pending_file_without_a_message_is_requeued(db) -> None:
     q = InMemoryQueue()
     file = FileObject(
-        id=new_id("fil"), user_id=_user(db).id, filename="a.txt", storage_key="uploads/x/a.txt",
-        status=FileStatus.PENDING, meta={"processing": "queued"},
+        id=new_id("fil"),
+        user_id=_user(db).id,
+        filename="a.txt",
+        storage_key="uploads/x/a.txt",
+        status=FileStatus.PENDING,
+        meta={"processing": "queued"},
     )
     waiting = FileObject(
-        id=new_id("fil"), user_id=_user(db).id, filename="b.txt", storage_key="uploads/x/b.txt",
-        status=FileStatus.PENDING, meta={"processing": "awaiting_upload"},
+        id=new_id("fil"),
+        user_id=_user(db).id,
+        filename="b.txt",
+        storage_key="uploads/x/b.txt",
+        status=FileStatus.PENDING,
+        meta={"processing": "awaiting_upload"},
     )
     db.add_all([file, waiting])
     db.commit()

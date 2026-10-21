@@ -56,9 +56,7 @@ def internal_set_status(run_id: str, body: RunStatusIn, db: Session = Depends(ge
     if body.status not in {RunStatus.RUNNING, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED}:
         raise HTTPException(status_code=400, detail=f"bad status: {body.status}")
     try:
-        run, _ = transition_run(
-            db, run_id, body.status, summary=body.summary, error=body.error, result=body.result
-        )
+        run, _ = transition_run(db, run_id, body.status, summary=body.summary, error=body.error, result=body.result)
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=f"invalid transition: {exc}") from exc
     return run_dict(db, run, detail=True)

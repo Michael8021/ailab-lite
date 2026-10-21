@@ -19,9 +19,7 @@ def append_event(db: Session, run_id: str, type_: str, payload: dict | None = No
     """
     last_error: Exception | None = None
     for attempt in range(6):
-        seq = db.scalar(
-            select(func.coalesce(func.max(RunEvent.seq), 0)).where(RunEvent.run_id == run_id)
-        ) + 1
+        seq = db.scalar(select(func.coalesce(func.max(RunEvent.seq), 0)).where(RunEvent.run_id == run_id)) + 1
         event = RunEvent(run_id=run_id, seq=seq, type=type_, payload=payload or {})
         db.add(event)
         try:
@@ -36,10 +34,4 @@ def append_event(db: Session, run_id: str, type_: str, payload: dict | None = No
 
 
 def list_events(db: Session, run_id: str, after: int = 0) -> list[RunEvent]:
-    return list(
-        db.scalars(
-            select(RunEvent)
-            .where(RunEvent.run_id == run_id, RunEvent.seq > after)
-            .order_by(RunEvent.seq)
-        )
-    )
+    return list(db.scalars(select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.seq > after).order_by(RunEvent.seq)))

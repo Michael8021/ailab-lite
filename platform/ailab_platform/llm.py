@@ -205,9 +205,7 @@ class MockLLM(LLMClient):
                         ToolCall(
                             id=f"call_mock_{step}_preview",
                             name="exec",
-                            arguments={
-                                "cmd": "python /opt/skills/pptx-builder/scripts/preview.py /workspace/outputs/demo.pptx"
-                            },
+                            arguments={"cmd": "python /opt/skills/pptx-builder/scripts/preview.py /workspace/outputs/demo.pptx"},
                         )
                     ],
                     usage=usage,

@@ -88,9 +88,7 @@ def test_user_id_header_is_forwarded_when_given() -> None:
 
 
 def test_truncated_output_is_an_error() -> None:
-    client, _ = _client(
-        lambda n, r: httpx.Response(200, json={"choices": [{"message": {"content": "par"}, "finish_reason": "length"}]})
-    )
+    client, _ = _client(lambda n, r: httpx.Response(200, json={"choices": [{"message": {"content": "par"}, "finish_reason": "length"}]}))
     with pytest.raises(LLMError, match="truncated"):
         _chat(client)
 

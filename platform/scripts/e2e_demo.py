@@ -31,9 +31,7 @@ def main() -> int:
         deadline = time.time() + 300
         while time.time() < deadline:
             detail = client.get(f"{BASE}/v1/runs/{run_id}", headers=HEADERS).json()
-            events = client.get(
-                f"{BASE}/v1/runs/{run_id}/events/history", headers=HEADERS, params={"after": seen}
-            ).json()
+            events = client.get(f"{BASE}/v1/runs/{run_id}/events/history", headers=HEADERS, params={"after": seen}).json()
             for event in events:
                 seen = max(seen, event["seq"])
                 payload = event.get("payload") or {}

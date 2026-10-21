@@ -57,7 +57,9 @@ def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict
             if started > cutoff:
                 continue
             _, changed = transition_run(
-                db, run.id, RunStatus.FAILED,
+                db,
+                run.id,
+                RunStatus.FAILED,
                 error="agent lost: the run was executing but no agent or queue message remains",
             )
             stats["runs_failed"] += int(changed)

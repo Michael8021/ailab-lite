@@ -108,11 +108,7 @@ def list_files(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     files = db.scalars(
-        select(FileObject)
-        .where(FileObject.user_id == user.id)
-        .order_by(FileObject.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+        select(FileObject).where(FileObject.user_id == user.id).order_by(FileObject.created_at.desc()).limit(limit).offset(offset)
     ).all()
     return [file_dict(f) for f in files]
 

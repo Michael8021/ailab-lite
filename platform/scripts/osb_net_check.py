@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from ailab_platform.sandbox.opensandbox import OpenSandboxProvider
 
-CHECK = (
-    "python -c \"import socket; "
-    "socket.create_connection(('pypi.org', 443), 3); "
-    "print('NET_OPEN')\""
-)
+CHECK = "python -c \"import socket; socket.create_connection(('pypi.org', 443), 3); print('NET_OPEN')\""
 
 
 def main() -> None:

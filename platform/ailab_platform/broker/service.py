@@ -191,9 +191,7 @@ class LeaseManager:
                 log.warning("provider release failed for %s", lease_id, exc_info=True)
             self._drop(lease_id)
         try:
-            self.platform.append_event(
-                lease["run_id"], "sandbox.released", {"lease_id": lease_id, "reason": reason}
-            )
+            self.platform.append_event(lease["run_id"], "sandbox.released", {"lease_id": lease_id, "reason": reason})
         except Exception:
             pass
 

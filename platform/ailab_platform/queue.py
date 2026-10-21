@@ -115,9 +115,7 @@ class RedisQueue(JobQueue):
         def attempt() -> Message | None:
             self._ensure_group(name)
             # 1) take over anything a dead/hung consumer left unacked
-            claimed = self.client.xautoclaim(
-                name, self.GROUP, consumer, min_idle_time=visibility_seconds * 1000, start_id="0-0", count=1
-            )
+            claimed = self.client.xautoclaim(name, self.GROUP, consumer, min_idle_time=visibility_seconds * 1000, start_id="0-0", count=1)
             entries = claimed[1]
             if not entries:
                 # 2) otherwise the next new message
@@ -140,10 +138,7 @@ class RedisQueue(JobQueue):
 
     # XACK and XDEL must be atomic: a crash between them leaves an entry that
     # is already acked but still returned by XRANGE (outstanding()/reaper).
-    _ACK = (
-        "redis.call('XACK', KEYS[1], ARGV[1], ARGV[2]); "
-        "return redis.call('XDEL', KEYS[1], ARGV[2])"
-    )
+    _ACK = "redis.call('XACK', KEYS[1], ARGV[1], ARGV[2]); return redis.call('XDEL', KEYS[1], ARGV[2])"
 
     def ack(self, name: str, message: Message) -> None:
         self.client.eval(self._ACK, 1, name, self.GROUP, message.id)

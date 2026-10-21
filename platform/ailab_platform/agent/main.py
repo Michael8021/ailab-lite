@@ -49,9 +49,7 @@ async def handle_message(loop: AgentLoop, queue, msg: Message) -> None:
     if attempt > settings.run_max_attempts:
         log.error("run %s attempted %d times; giving up", run_id, attempt)
         try:
-            await platform.set_run_status(
-                run_id, RunStatus.FAILED, error=f"agent crashed or hung {attempt - 1} times; giving up"
-            )
+            await platform.set_run_status(run_id, RunStatus.FAILED, error=f"agent crashed or hung {attempt - 1} times; giving up")
         except Exception:
             log.exception("could not mark run %s failed", run_id)
         await asyncio.to_thread(queue.ack, settings.run_queue, msg)
@@ -71,18 +69,14 @@ async def handle_message(loop: AgentLoop, queue, msg: Message) -> None:
         except TimeoutError:
             log.error("run %s hit the %ss timeout", run_id, settings.run_timeout_seconds)
             try:
-                await platform.set_run_status(
-                    run_id, RunStatus.FAILED, error=f"run timeout after {settings.run_timeout_seconds}s"
-                )
+                await platform.set_run_status(run_id, RunStatus.FAILED, error=f"run timeout after {settings.run_timeout_seconds}s")
             except Exception:
                 log.exception("could not mark timed-out run %s failed", run_id)
         except asyncio.CancelledError:
             # Shutting down (rolling deploy, SIGTERM). Waiting for the visibility timeout would
             # leave the run stalled for ~16 minutes, so hand it to the next agent right away.
             try:
-                await asyncio.to_thread(
-                    queue.enqueue, settings.run_queue, {"run_id": run_id, "attempt": attempt + 1}
-                )
+                await asyncio.to_thread(queue.enqueue, settings.run_queue, {"run_id": run_id, "attempt": attempt + 1})
                 await asyncio.to_thread(queue.ack, settings.run_queue, msg)
                 log.info("run %s handed back to the queue for another agent", run_id)
             except Exception:

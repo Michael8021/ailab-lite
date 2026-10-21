@@ -99,8 +99,14 @@ class _ApiStub(_Platform):
 
     def commit_artifact(self, payload):
         self.committed.append(payload)
-        return {"artifact_id": "art_1", "file_id": "fil_1", "filename": payload["filename"],
-                "content_type": payload["content_type"], "size": payload["size"], "sha256": payload["sha256"]}
+        return {
+            "artifact_id": "art_1",
+            "file_id": "fil_1",
+            "filename": payload["filename"],
+            "content_type": payload["content_type"],
+            "size": payload["size"],
+            "sha256": payload["sha256"],
+        }
 
 
 def _manager_with(api: _ApiStub):
@@ -110,9 +116,11 @@ def _manager_with(api: _ApiStub):
 
 def test_inputs_come_from_the_run_not_from_the_caller() -> None:
     api = _ApiStub(
-        {"f1": {"status": "ready", "filename": "a.txt", "bytes": b"one"},
-         "f2": {"status": "ready", "filename": "a.txt", "bytes": b"two"},
-         "other": {"status": "ready", "filename": "secret.txt", "bytes": b"nope"}},
+        {
+            "f1": {"status": "ready", "filename": "a.txt", "bytes": b"one"},
+            "f2": {"status": "ready", "filename": "a.txt", "bytes": b"two"},
+            "other": {"status": "ready", "filename": "secret.txt", "bytes": b"nope"},
+        },
         run_inputs=["f1", "f2"],
     )
     manager, provider, _ = _manager_with(api)

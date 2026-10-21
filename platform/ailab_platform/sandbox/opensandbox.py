@@ -39,8 +39,7 @@ class OpenSandboxProvider(SandboxProvider):
             from opensandbox.config import ConnectionConfigSync
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise SandboxError(
-                "opensandbox SDK is not installed; run `pip install opensandbox==1.1.1` "
-                "or use AILAB_SANDBOX_PROVIDER=docker"
+                "opensandbox SDK is not installed; run `pip install opensandbox==1.1.1` or use AILAB_SANDBOX_PROVIDER=docker"
             ) from exc
 
         self._SandboxSync = SandboxSync

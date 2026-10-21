@@ -18,8 +18,17 @@ def test_accepts_paths_inside_workspace(path, expected) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["", "workspace/a", "/workspace-evil/a", "/workspaceX", "/workspace/../etc/passwd", "/etc/passwd",
-     "//workspace/a", "/workspace/a\x00b", "/workspace/../workspace-evil"],
+    [
+        "",
+        "workspace/a",
+        "/workspace-evil/a",
+        "/workspaceX",
+        "/workspace/../etc/passwd",
+        "/etc/passwd",
+        "//workspace/a",
+        "/workspace/a\x00b",
+        "/workspace/../workspace-evil",
+    ],
 )
 def test_rejects_paths_outside_workspace(path) -> None:
     with pytest.raises(PathError):

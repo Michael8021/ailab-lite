@@ -60,9 +60,7 @@ def create_run(body: RunCreate, user: User = Depends(current_user), db: Session 
 
     enforce_token_quota(db, user.id)
 
-    active = db.scalar(
-        select(func.count()).select_from(Run).where(Run.user_id == user.id, Run.status.in_(RunStatus.ACTIVE))
-    )
+    active = db.scalar(select(func.count()).select_from(Run).where(Run.user_id == user.id, Run.status.in_(RunStatus.ACTIVE)))
     if active >= settings.max_active_runs_per_user:
         raise HTTPException(status_code=429, detail="too many active runs for this user")
 
@@ -103,9 +101,7 @@ def list_runs(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    runs = db.scalars(
-        select(Run).where(Run.user_id == user.id).order_by(Run.created_at.desc()).limit(limit).offset(offset)
-    ).all()
+    runs = db.scalars(select(Run).where(Run.user_id == user.id).order_by(Run.created_at.desc()).limit(limit).offset(offset)).all()
     return [run_dict(db, run) for run in runs]
 
 
@@ -137,12 +133,7 @@ def event_history(
 
 def _poll_events(run_id: str, after: int) -> tuple[list[tuple[int, str, dict]], str]:
     with SessionLocal() as db:
-        rows = db.scalars(
-            select(RunEvent)
-            .where(RunEvent.run_id == run_id, RunEvent.seq > after)
-            .order_by(RunEvent.seq)
-            .limit(200)
-        ).all()
+        rows = db.scalars(select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.seq > after).order_by(RunEvent.seq).limit(200)).all()
         run = db.get(Run, run_id)
         status = run.status if run else RunStatus.FAILED
         return [(e.seq, e.type, e.payload or {}) for e in rows], status

@@ -169,8 +169,9 @@ def test_token_limit_stops_the_run_but_keeps_the_work(monkeypatch) -> None:
     monkeypatch.setattr(settings, "run_max_tokens", 100)
     broker = RichBroker(outputs=[{"path": "/workspace/outputs/partial.md", "size": 3}])
     step = ToolCall(id="c", name="list_files", arguments={"path": "/workspace"})
-    llm = ScriptedLLM([LLMResponse(tool_calls=[step], usage={"prompt_tokens": 90, "completion_tokens": 20}),
-                       LLMResponse(content="never reached")])
+    llm = ScriptedLLM(
+        [LLMResponse(tool_calls=[step], usage={"prompt_tokens": 90, "completion_tokens": 20}), LLMResponse(content="never reached")]
+    )
     platform, _ = _run(llm, broker=broker)
     status, kw = platform.statuses[-1][0], platform.statuses[-1][1]
     assert status == "failed" and "token limit" in kw["error"]

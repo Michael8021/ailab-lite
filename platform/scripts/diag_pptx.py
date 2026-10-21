@@ -1,4 +1,5 @@
 """Diagnose the pptx geometry and overflow heuristic (dev only)."""
+
 import sys
 from pathlib import Path
 
@@ -25,7 +26,14 @@ def build(path):
                 "bullets": [
                     "这是一条非常非常长的要点，用来测试溢出检查是否能够发现文字超出文本框的情况，"
                     "重复一遍：这是一条非常非常长的要点，用来测试溢出检查是否能够发现文字超出文本框的情况",
-                    "a", "b", "c", "d", "e", "f", "g", "h",
+                    "a",
+                    "b",
+                    "c",
+                    "d",
+                    "e",
+                    "f",
+                    "g",
+                    "h",
                 ],
             },
         ],
@@ -59,8 +67,8 @@ def main(path):
         print(f"--- slide {i}")
         for sh in slide.shapes:
             print(
-                f"  {sh.shape_type} {sh.name!r} L={sh.left/12700:.1f} T={sh.top/12700:.1f} "
-                f"W={sh.width/12700:.1f} H={sh.height/12700:.1f}"
+                f"  {sh.shape_type} {sh.name!r} L={sh.left / 12700:.1f} T={sh.top / 12700:.1f} "
+                f"W={sh.width / 12700:.1f} H={sh.height / 12700:.1f}"
             )
             if sh.has_text_frame:
                 print("    paras:", [p.text[:20] for p in sh.text_frame.paragraphs])

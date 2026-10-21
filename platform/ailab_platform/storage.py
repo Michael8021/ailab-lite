@@ -140,14 +140,10 @@ class S3Storage(Storage):
         )
 
     def presign_put(self, key: str, expires: int = 900) -> str | None:
-        return self.client.generate_presigned_url(
-            "put_object", Params={"Bucket": self.bucket, "Key": _safe_key(key)}, ExpiresIn=expires
-        )
+        return self.client.generate_presigned_url("put_object", Params={"Bucket": self.bucket, "Key": _safe_key(key)}, ExpiresIn=expires)
 
     def presign_get(self, key: str, expires: int = 900) -> str | None:
-        return self.client.generate_presigned_url(
-            "get_object", Params={"Bucket": self.bucket, "Key": _safe_key(key)}, ExpiresIn=expires
-        )
+        return self.client.generate_presigned_url("get_object", Params={"Bucket": self.bucket, "Key": _safe_key(key)}, ExpiresIn=expires)
 
 
 @lru_cache
