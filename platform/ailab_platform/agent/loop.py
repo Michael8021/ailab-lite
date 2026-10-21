@@ -10,6 +10,7 @@ from collections.abc import Awaitable
 from typing import TypeVar
 
 from .. import metrics
+from ..catalog import get_catalog
 from ..clients import AsyncBrokerClient, AsyncPlatformClient, ClientError
 from ..config import settings
 from ..llm import INVALID_ARGUMENTS_KEY, LLMClient, llm_for
@@ -27,6 +28,11 @@ SANDBOX_RETRY_SECONDS = 3.0
 
 class RunCanceled(Exception):
     pass
+
+
+def _echoes_reasoning(model: str) -> bool:
+    spec = get_catalog().get(model)
+    return settings.llm_echo_reasoning or bool(spec and spec.echo_reasoning)
 
 
 def _arguments_json(arguments: dict) -> str:
@@ -221,7 +227,7 @@ class AgentLoop:
                         for call in response.tool_calls
                     ],
                 }
-                if settings.llm_echo_reasoning and response.reasoning_content:
+                if response.reasoning_content and _echoes_reasoning(model):
                     assistant["reasoning_content"] = response.reasoning_content
                 messages.append(assistant)
 

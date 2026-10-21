@@ -29,7 +29,7 @@ def _entry(**kw) -> dict:
 def test_the_shipped_catalog_is_valid_and_keyless() -> None:
     shipped = Path(__file__).resolve().parents[1] / "models.toml"  # the file the repo and the image ship
     cat = load_catalog(shipped)
-    assert cat.get("ailab-agent-pro").upstream_model == "deepseek-chat"
+    assert cat.get("deepseek-v4.1-flash").upstream_model == "deepseek-flash"
     text = shipped.read_text()
     assert "sk-" not in text, "a key must never be written into the catalog"
 

@@ -95,6 +95,19 @@ def test_reasoning_is_echoed_only_when_enabled(monkeypatch) -> None:
         assert ("reasoning_content" in assistant) is enabled
 
 
+def test_reasoning_is_echoed_for_models_that_ask_for_it(monkeypatch) -> None:
+    from ailab_platform.catalog import Catalog, ModelSpec
+
+    for wants in (False, True):
+        catalog = Catalog([ModelSpec(id="m", name="m", provider="mock", echo_reasoning=wants)])
+        monkeypatch.setattr("ailab_platform.agent.loop.get_catalog", lambda catalog=catalog: catalog)
+        step = ToolCall(id="c1", name="list_files", arguments={"path": "/nope"})
+        llm = ScriptedLLM([LLMResponse(tool_calls=[step], reasoning_content="why"), LLMResponse(content="x")])
+        _run(llm)
+        assistant = next(m for m in llm.seen_messages[1] if m["role"] == "assistant")
+        assert ("reasoning_content" in assistant) is wants
+
+
 def test_tool_call_events_do_not_store_huge_arguments() -> None:
     big = ToolCall(id="c1", name="write_file", arguments={"path": "/workspace/a", "content": "x" * 50_000})
     llm = ScriptedLLM([LLMResponse(tool_calls=[big]), LLMResponse(content="done")])

@@ -53,6 +53,9 @@ class ModelSpec:
     tools: bool = True
     default: bool = False
     enabled: bool = True
+    # Thinking models (DeepSeek V4.x) refuse the next turn of a tool conversation unless the previous
+    # reasoning_content is sent back; others reject or ignore it. Hence a per-model switch.
+    echo_reasoning: bool = False
 
     def api_key(self) -> str:
         return secret(self.api_key_env) if self.api_key_env else ""
