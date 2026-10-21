@@ -1,0 +1,36 @@
+"""FastAPI dependencies: DB session, user auth and service auth."""
+
+from __future__ import annotations
+
+from typing import Iterator
+
+from fastapi import Depends, Header, HTTPException, Request, status
+from sqlalchemy.orm import Session
+
+from .db import SessionLocal
+from .models import User
+from .security import authenticate, bearer_token, service_token_ok
+
+
+def get_db() -> Iterator[Session]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    user = authenticate(db, bearer_token(request))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or missing token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def service_auth(x_service_token: str | None = Header(default=None)) -> None:
+    if not service_token_ok(x_service_token):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="service token required")

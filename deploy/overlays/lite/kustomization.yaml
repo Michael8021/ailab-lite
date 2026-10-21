@@ -1,0 +1,12 @@
+# 本机 lite overlay：只改数值，不改结构
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base/sandbox
+  - runtimeclass.yaml
+patches:
+  - target: { kind: ResourceQuota, name: sandbox-quota }
+    patch: |-
+      - op: replace
+        path: /spec/hard/pods
+        value: "1"

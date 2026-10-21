@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+var/
+.pytest_cache/
+node_modules/
+.next/
+*.egg-info/
+.env
+*.log
+**/tsconfig.tsbuildinfo
+logs/
+demo-output/
+tests/local.sh

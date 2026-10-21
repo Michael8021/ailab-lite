@@ -1,0 +1,28 @@
+# Catalog used by the test suite (conftest points AILAB_MODELS_FILE here).
+[[models]]
+id = "test-pro"
+name = "Test Pro"
+description = "mock, weight 3"
+provider = "mock"
+weight = 3
+default = true
+
+[[models]]
+id = "test-fast"
+name = "Test Fast"
+provider = "mock"
+weight = 1
+
+[[models]]
+id = "test-no-key"
+name = "Needs a key nobody set"
+provider = "openai"
+base_url = "http://gateway.invalid/v1"
+api_key_env = "AILAB_KEY_NOT_SET_ANYWHERE"
+upstream_model = "x"
+
+[[models]]
+id = "test-disabled"
+name = "Switched off"
+provider = "mock"
+enabled = false

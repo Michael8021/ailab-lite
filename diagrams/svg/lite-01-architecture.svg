@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1100" viewBox="0 0 1500 1100" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC','Source Han Sans SC',sans-serif">
+<defs><marker id="m0e7490" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0e7490"/></marker><marker id="m2563eb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker><marker id="m475569" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker><marker id="m7c3aed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker><marker id="mc2410c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/></marker></defs>
+<rect width="1500" height="1100" fill="#ffffff"/>
+<text x="30.0" y="42.0" font-size="24" font-weight="700" fill="#0f172a" text-anchor="start" style="white-space:pre">AILab 简易版架构</text>
+<text x="256.4" y="42.0" font-size="13.5" font-weight="400" fill="#64748b" text-anchor="start" style="white-space:pre">本机 · 单节点 k3s · 与大集群同组件、同部署文件，只有 overlays/lite 的数值不同</text>
+<rect x="1083.0" y="24" width="16" height="12" rx="2" ry="2" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="1105.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">自研服务</text>
+<rect x="1159.0" y="24" width="16" height="12" rx="2" ry="2" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1181.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">开源组件</text>
+<rect x="1235.0" y="24" width="16" height="12" rx="2" ry="2" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="1257.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">数据</text>
+<rect x="1288.0" y="24" width="16" height="12" rx="2" ry="2" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1310.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">存储</text>
+<rect x="1341.0" y="24" width="16" height="12" rx="2" ry="2" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1363.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">沙箱</text>
+<rect x="1394.0" y="24" width="16" height="12" rx="2" ry="2" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+<text x="1416.0" y="35.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">本机已有</text>
+<rect x="70" y="66" width="250" height="62" rx="8" ry="8" fill="#ffffff" stroke="#334155" stroke-width="1.5"/>
+<text x="195.0" y="89.8" font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">浏览器 / Portal 用户</text>
+<text x="195.0" y="112.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">SSE 流式 · 预签名直传 S3</text>
+<rect x="380" y="66" width="320" height="62" rx="8" ry="8" fill="#ffffff" stroke="#334155" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="540.0" y="89.8" font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">DeepSeek 官方 API</text>
+<text x="540.0" y="112.5" font-size="12.5" font-weight="400" fill="#dc2626" text-anchor="middle" style="white-space:pre">api.deepseek.com · 数据出域，只用测试数据</text>
+<rect x="20" y="150" width="1460" height="784" rx="12" ry="12" fill="#fcfcfd" stroke="#64748b" stroke-width="1.4" stroke-dasharray="8 5"/>
+<text x="500.0" y="172.0" font-size="13" font-weight="700" fill="#334155" text-anchor="start" style="white-space:pre">宿主机：VMware 虚拟机 · 2 vCPU · 7.7 GB · x86_64 · 无 KVM（所以沙箱用 gVisor，不用 Kata）</text>
+<rect x="36" y="190" width="1134" height="726" rx="10" ry="10" fill="#f8fafc" stroke="#0891b2" stroke-width="1.6"/>
+<text x="500.0" y="212.0" font-size="13" font-weight="700" fill="#0e7490" text-anchor="start" style="white-space:pre">k3s v1.34.12 · 单节点（大集群：kubeadm 1.34）· 已关 traefik / servicelb / metrics-server</text>
+<rect x="52" y="232" width="1102" height="140" rx="10" ry="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1140.0" y="256.0" font-size="15" font-weight="700" fill="#334155" text-anchor="end" style="white-space:pre">接入与模型面</text>
+<text x="1038.0" y="256.0" font-size="12" font-weight="400" fill="#64748b" text-anchor="end" style="white-space:pre">higress-system · gpustack · identity</text>
+<rect x="70" y="274" width="380" height="88" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="260.0" y="291.8" font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Higress 2.1.9</text>
+<text x="260.0" y="314.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">入口路由 + 模型网关（本机合并为一套）</text>
+<text x="260.0" y="333.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">插件：Key 鉴权 · 用量 · 按人限流</text>
+<text x="260.0" y="352.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">路由由 GPUStack 以 incluster 模式写入</text>
+<rect x="418.8" y="265" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="431.4" y="278.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T3</text>
+<rect x="520" y="274" width="300" height="88" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="670.0" y="291.8" font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">GPUStack Server 2.3</text>
+<text x="670.0" y="314.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">只有 Server，没有 Worker</text>
+<text x="670.0" y="333.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">DeepSeek 配成“模型提供方”</text>
+<text x="670.0" y="352.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">别名：ailab-agent-pro / agent / chat</text>
+<rect x="788.8" y="265" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="801.4" y="278.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T3</text>
+<rect x="860" y="274" width="270" height="88" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="995.0" y="301.2" font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Keycloak 26.x（Operator）</text>
+<text x="995.0" y="324.0" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">本地测试用户，不接 LDAP</text>
+<text x="995.0" y="343.0" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">Platform API 以 OIDC 对接（BFF）</text>
+<rect x="1090.0" y="265" width="34.0" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1107.0" y="278.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">后续</text>
+<rect x="52" y="408" width="1102" height="132" rx="10" ry="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1140.0" y="432.0" font-size="15" font-weight="700" fill="#334155" text-anchor="end" style="white-space:pre">平台服务 · platform</text>
+<text x="969.0" y="432.0" font-size="12" font-weight="400" fill="#64748b" text-anchor="end" style="white-space:pre">自研，各 1 副本（同一份镜像，大集群只改副本数）</text>
+<rect x="64" y="448" width="196" height="84" rx="8" ry="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="162.0" y="473.6" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Portal</text>
+<text x="162.0" y="495.8" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">Next.js</text>
+<text x="162.0" y="514.2" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">Chat / Work / 资料库</text>
+<rect x="220.0" y="439" width="34.0" height="18" rx="9" ry="9" fill="#4f46e5" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="237.0" y="452.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">后续</text>
+<rect x="284" y="448" width="196" height="84" rx="8" ry="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="382.0" y="473.6" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Platform API</text>
+<text x="382.0" y="495.8" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">身份 · 权限 · 配额</text>
+<text x="382.0" y="514.2" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">资料库 · 账本（唯一写入方）</text>
+<rect x="440.0" y="439" width="34.0" height="18" rx="9" ry="9" fill="#4f46e5" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="457.0" y="452.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">后续</text>
+<rect x="504" y="448" width="196" height="84" rx="8" ry="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="602.0" y="473.6" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Agent Service</text>
+<text x="602.0" y="495.8" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">deepagents 循环（在沙箱外）</text>
+<text x="602.0" y="514.2" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">只有它调用模型</text>
+<rect x="668.8" y="439" width="25.2" height="18" rx="9" ry="9" fill="#4f46e5" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="681.4" y="452.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">I1</text>
+<rect x="724" y="448" width="196" height="84" rx="8" ry="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="822.0" y="473.6" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Sandbox Broker</text>
+<text x="822.0" y="495.8" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">沙箱准入 · 租约 · 回收</text>
+<text x="822.0" y="514.2" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">只搬运文件字节</text>
+<rect x="888.8" y="439" width="25.2" height="18" rx="9" ry="9" fill="#4f46e5" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="901.4" y="452.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">I2</text>
+<rect x="944" y="448" width="196" height="84" rx="8" ry="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="1042.0" y="473.6" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">文件处理 Worker</text>
+<text x="1042.0" y="495.8" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">解析 · 预览 · 病毒扫描</text>
+<text x="1042.0" y="514.2" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">无 OCR 模型，扫描件先跳过</text>
+<rect x="1100.0" y="439" width="34.0" height="18" rx="9" ry="9" fill="#4f46e5" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="1117.0" y="452.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">后续</text>
+<rect x="52" y="578" width="508" height="130" rx="10" ry="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="66.0" y="602.0" font-size="15" font-weight="700" fill="#334155" text-anchor="start" style="white-space:pre">数据面 · data</text>
+<text x="186.0" y="602.0" font-size="12" font-weight="400" fill="#64748b" text-anchor="start" style="white-space:pre">单实例</text>
+<rect x="64" y="618" width="150" height="80" rx="8" ry="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="139.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">PostgreSQL</text>
+<text x="139.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">CNPG · instances=1</text>
+<text x="139.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">业务库 · checkpoint</text>
+<rect x="182.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#7c3aed" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="195.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T4</text>
+<rect x="228" y="618" width="150" height="80" rx="8" ry="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="303.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Valkey</text>
+<text x="303.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">限流计数 · run 队列</text>
+<text x="303.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">事件流（可丢）</text>
+<rect x="346.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#7c3aed" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="359.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T3</text>
+<rect x="392" y="618" width="156" height="80" rx="8" ry="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="470.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">SeaweedFS S3</text>
+<text x="470.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">代替 Pacific S3</text>
+<text x="470.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">资料库 · 预签名</text>
+<rect x="516.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
+<text x="529.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T4</text>
+<rect x="578" y="578" width="576" height="130" rx="10" ry="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="665.0" y="602.0" font-size="15" font-weight="700" fill="#334155" text-anchor="start" style="white-space:pre">沙箱控制 · opensandbox-system</text>
+<rect x="590" y="618" width="170" height="80" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="675.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">ingress-gateway</text>
+<text x="675.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">所有 execd 流量入口</text>
+<text x="675.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">校验单沙箱令牌</text>
+<rect x="728.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="741.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T2</text>
+<rect x="776" y="618" width="170" height="80" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="861.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Controller</text>
+<text x="861.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">预热池 0～1 个</text>
+<text x="861.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">到期回收（兜底）</text>
+<rect x="914.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="927.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T2</text>
+<rect x="962" y="618" width="170" height="80" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1047.0" y="640.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">Server</text>
+<text x="1047.0" y="663.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">生命周期 API</text>
+<text x="1047.0" y="682.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">运行时 = gvisor</text>
+<rect x="1100.8" y="609" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1113.4" y="622.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T2</text>
+<rect x="52" y="752" width="1102" height="148" rx="10" ry="10" fill="#ecfeff" stroke="#0891b2" stroke-width="1"/>
+<text x="66.0" y="776.0" font-size="15" font-weight="700" fill="#334155" text-anchor="start" style="white-space:pre">沙箱 · namespace sandbox · runtimeClass = gvisor（大集群：kata-qemu）</text>
+<rect x="70" y="792" width="510" height="96" rx="8" ry="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="82.0" y="814.5" font-size="12.5" font-weight="400" fill="#166534" text-anchor="start" style="white-space:pre">NetworkPolicy：默认拒绝全部出入</text>
+<text x="82.0" y="833.5" font-size="12.5" font-weight="400" fill="#166534" text-anchor="start" style="white-space:pre">（gVisor 下没有出网 sidecar，只靠这一层）</text>
+<text x="82.0" y="852.5" font-size="12.5" font-weight="400" fill="#166534" text-anchor="start" style="white-space:pre">ResourceQuota：pods = 1（同时只有 1 个沙箱）</text>
+<text x="82.0" y="871.5" font-size="12.5" font-weight="400" fill="#166534" text-anchor="start" style="white-space:pre">无密钥 · 无 SA Token · 非 root · 最长存活 4 小时</text>
+<rect x="548.8" y="783" width="25.2" height="18" rx="9" ry="9" fill="#16a34a" stroke="#16a34a" stroke-width="1.5"/>
+<text x="561.4" y="796.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T0</text>
+<rect x="600" y="792" width="530" height="96" rx="8" ry="8" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="865.0" y="814.3" font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">沙箱 Pod（最多 1 个）</text>
+<text x="865.0" y="836.5" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">sbx-office:lite · Python · LibreOffice · 中文字体 · Skills</text>
+<text x="865.0" y="855.0" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">1 CPU · 1.5 GiB · /workspace/inputs · outputs（临时）</text>
+<text x="865.0" y="873.5" font-size="12" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">镜像预导入 k3s，名字与大集群一致（不靠拉取）</text>
+<rect x="1098.8" y="783" width="25.2" height="18" rx="9" ry="9" fill="#0891b2" stroke="#0891b2" stroke-width="1.5"/>
+<text x="1111.4" y="796.0" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">T1</text>
+<rect x="1190" y="190" width="276" height="170" rx="8" ry="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1328.0" y="238.9" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">本机已有服务（不得影响）</text>
+<text x="1328.0" y="261.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">本机原有的业务服务</text>
+<text x="1328.0" y="280.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">  （只读探测，不改配置）</text>
+<text x="1328.0" y="299.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">反向代理 :80 · redis :6379</text>
+<text x="1328.0" y="318.5" font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle" style="white-space:pre">其他常驻进程</text>
+<rect x="1190" y="380" width="276" height="112" rx="8" ry="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1328.0" y="400.7" font-size="13.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">T0 实测</text>
+<text x="1328.0" y="422.8" font-size="12" font-weight="400" fill="#166534" text-anchor="middle" style="white-space:pre">docker 自己的 iptables 链无变化</text>
+<text x="1328.0" y="441.2" font-size="12" font-weight="400" fill="#166534" text-anchor="middle" style="white-space:pre">k3s 仅在 FORWARD 前插 pod 网段规则</text>
+<text x="1328.0" y="459.8" font-size="12" font-weight="400" fill="#166534" text-anchor="middle" style="white-space:pre">宿主机探针前后均正常</text>
+<text x="1328.0" y="478.2" font-size="12" font-weight="400" fill="#166534" text-anchor="middle" style="white-space:pre">原有服务的端口不变</text>
+<rect x="1190" y="512" width="276" height="112" rx="8" ry="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="1328.0" y="532.7" font-size="13.5" font-weight="700" fill="#0f172a" text-anchor="middle" style="white-space:pre">资源</text>
+<text x="1328.0" y="554.8" font-size="12" font-weight="400" fill="#b91c1c" text-anchor="middle" style="white-space:pre">全套估算 6.5～7 GB &gt; 7.7 GB</text>
+<text x="1328.0" y="573.2" font-size="12" font-weight="400" fill="#b91c1c" text-anchor="middle" style="white-space:pre">装不下 → 一次只起一组</text>
+<text x="1328.0" y="591.8" font-size="12" font-weight="400" fill="#475569" text-anchor="middle" style="white-space:pre">（T 标签 = 测试分组）</text>
+<text x="1328.0" y="610.2" font-size="12" font-weight="400" fill="#475569" text-anchor="middle" style="white-space:pre">k3s 本身约 +0.5 GB（实测）</text>
+<path d="M195.0,128.0 L195.0,274.0" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#m2563eb)"/>
+<rect x="199" y="132.5" width="83.9" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="203.0" y="143.0" font-size="11.5" font-weight="400" fill="#2563eb" text-anchor="start" style="white-space:pre">HTTPS / SSE</text>
+<circle cx="195" cy="240" r="11" fill="#2563eb" stroke="#2563eb" stroke-width="1.5"/>
+<text x="195.0" y="244.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">1</text>
+<path d="M440.0,274.0 L440.0,128.0" fill="none" stroke="#c2410c" stroke-width="1.6" marker-end="url(#mc2410c)"/>
+<rect x="444" y="132.5" width="136.8" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="448.0" y="143.0" font-size="11.5" font-weight="400" fill="#c2410c" text-anchor="start" style="white-space:pre">出网 · provider 路由</text>
+<circle cx="440" cy="240" r="11" fill="#ea580c" stroke="#ea580c" stroke-width="1.5"/>
+<text x="440.0" y="244.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">4</text>
+<path d="M520.0,318.0 L450.0,318.0" fill="none" stroke="#0e7490" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#m0e7490)"/>
+<rect x="463.75" y="299.5" width="42.5" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="485.0" y="310.0" font-size="11.5" font-weight="400" fill="#0e7490" text-anchor="middle" style="white-space:pre">写路由</text>
+<path d="M130.0,362.0 L130.0,448.0" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#m2563eb)"/>
+<path d="M330.0,362.0 L330.0,448.0" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#m2563eb)"/>
+<rect x="334" y="399.5" width="54.0" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="338.0" y="410.0" font-size="11.5" font-weight="400" fill="#2563eb" text-anchor="start" style="white-space:pre">入口路由</text>
+<circle cx="130" cy="400" r="11" fill="#2563eb" stroke="#2563eb" stroke-width="1.5"/>
+<text x="130.0" y="404.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">2</text>
+<path d="M602.0,448.0 L602.0,398.0 L420.0,398.0 L420.0,362.0" fill="none" stroke="#0e7490" stroke-width="1.6" marker-end="url(#m0e7490)"/>
+<rect x="426" y="380.5" width="212.70000000000007" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="430.0" y="391.0" font-size="11.5" font-weight="400" fill="#0e7490" text-anchor="start" style="white-space:pre">服务 Key + x-user-id · LLM 调用</text>
+<circle cx="602" cy="424" r="11" fill="#0e7490" stroke="#0e7490" stroke-width="1.5"/>
+<text x="602.0" y="428.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">3</text>
+<path d="M480.0,490.0 L504.0,490.0" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#m7c3aed)" marker-start="url(#m7c3aed)"/>
+<path d="M300.0,532.0 L300.0,578.0" fill="none" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#m7c3aed)"/>
+<rect x="316" y="549.5" width="127.60000000000002" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="320.0" y="560.0" font-size="11.5" font-weight="400" fill="#7c3aed" text-anchor="start" style="white-space:pre">SQL · 预签名 · 队列</text>
+<circle cx="300" cy="553" r="11" fill="#7c3aed" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="300.0" y="557.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">7</text>
+<path d="M630.0,532.0 L630.0,618.0" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#m2563eb)"/>
+<rect x="638" y="555.5" width="102.3" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="642.0" y="566.0" font-size="11.5" font-weight="400" fill="#2563eb" text-anchor="start" style="white-space:pre">exec · 读写文件</text>
+<circle cx="630" cy="553" r="11" fill="#2563eb" stroke="#2563eb" stroke-width="1.5"/>
+<text x="630.0" y="557.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">5</text>
+<path d="M675.0,698.0 L675.0,792.0" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#m2563eb)"/>
+<rect x="679" y="737.5" width="65.5" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="683.0" y="748.0" font-size="11.5" font-weight="400" fill="#2563eb" text-anchor="start" style="white-space:pre">单沙箱令牌</text>
+<path d="M880.0,532.0 L880.0,566.0 L1047.0,566.0 L1047.0,618.0" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#m475569)"/>
+<rect x="902.35" y="549.5" width="125.30000000000004" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="965.0" y="560.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="middle" style="white-space:pre">acquire / release</text>
+<circle cx="880" cy="550" r="11" fill="#475569" stroke="#475569" stroke-width="1.5"/>
+<text x="880.0" y="554.5" font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle" style="white-space:pre">6</text>
+<path d="M861.0,698.0 L861.0,792.0" fill="none" stroke="#475569" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#m475569)"/>
+<rect x="865" y="737.5" width="102.30000000000001" height="16.5" rx="3" ry="3" fill="#ffffff" stroke="none" stroke-width="0" fill-opacity="0.9"/>
+<text x="869.0" y="748.0" font-size="11.5" font-weight="400" fill="#475569" text-anchor="start" style="white-space:pre">创建 / 回收 Pod</text>
+<rect x="20" y="948" width="720" height="134" rx="10" ry="10" fill="#fefce8" stroke="#ca8a04" stroke-width="1"/>
+<text x="38.0" y="972.0" font-size="13" font-weight="700" fill="#713f12" text-anchor="start" style="white-space:pre">与大集群的差异（迁移时只需重新验证这几项，其余组件和部署文件一致）</text>
+<text x="38.0" y="996.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• K8s：kubeadm + Calico  →  k3s + flannel（应用无感）</text>
+<text x="38.0" y="1015.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• 沙箱隔离：Kata（QEMU） → gVisor；出网控制只剩 NetworkPolicy</text>
+<text x="38.0" y="1034.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• 模型：本地 vLLM（GPUStack Worker） → DeepSeek 官方 API（改 GPUStack 路由目标即可切回）</text>
+<text x="38.0" y="1053.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• 存储与副本：Pacific S3 → SeaweedFS；PG / Valkey 单实例；身份用本地测试用户</text>
+<text x="38.0" y="1072.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• CPU 架构：arm64 → 本机 x86_64，自研镜像和沙箱镜像必须双架构构建</text>
+<rect x="760" y="948" width="720" height="134" rx="10" ry="10" fill="#fefce8" stroke="#ca8a04" stroke-width="1"/>
+<text x="778.0" y="972.0" font-size="13" font-weight="700" fill="#713f12" text-anchor="start" style="white-space:pre">一次“帮我做个 PPT”的主路径（数字对应图中箭头）</text>
+<text x="778.0" y="996.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• ① 浏览器经 Higress 入口 → ② Platform API 校验身份、建 Run（run_id 进 Valkey 队列）</text>
+<text x="778.0" y="1015.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• ③ Agent Service 经 Higress 调模型 → ④ Higress 经 GPUStack 路由转发到 DeepSeek</text>
+<text x="778.0" y="1034.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• ⑥ Broker 向 OpenSandbox 领沙箱 → ⑤ Agent 经 ingress-gateway 在沙箱里生成 pptx</text>
+<text x="778.0" y="1053.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• ⑦ 产出由 Broker 经两阶段提交写入 S3，Platform API 登记版本、推事件给浏览器</text>
+<text x="778.0" y="1072.0" font-size="12" font-weight="400" fill="#1e293b" text-anchor="start" style="white-space:pre">• 分组测试：T0 基座 ✅ · T1 沙箱镜像 · T2 OpenSandbox · T3 模型面 · T4 数据面 · I1/I2 协同</text>
+</svg>

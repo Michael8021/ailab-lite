@@ -1,0 +1,7 @@
+*
+!platform/pyproject.toml
+!platform/README.md
+!platform/models.toml
+!platform/ailab_platform
+!images/sbx-office/skills
+**/__pycache__

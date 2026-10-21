@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import asyncio
+
+import httpx
+import pytest
+
+from ailab_platform import llm as llm_mod
+from ailab_platform.config import settings
+from ailab_platform.llm import INVALID_ARGUMENTS_KEY, LLMError, OpenAICompatibleClient
+
+
+@pytest.fixture(autouse=True)
+def _fast_retries(monkeypatch):
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(llm_mod.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(settings, "llm_max_retries", 2)
+    monkeypatch.setattr(settings, "llm_retry_backoff_seconds", 1.0)
+    return sleeps
+
+
+def _ok(content="hi", **message_extra) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": content, **message_extra}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+        },
+    )
+
+
+def _client(handler) -> tuple[OpenAICompatibleClient, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return handler(len(seen), request)
+
+    return OpenAICompatibleClient("http://gateway.test/v1", "k", transport=httpx.MockTransport(wrapped)), seen
+
+
+def _chat(client, **kw):
+    return asyncio.run(client.chat([{"role": "user", "content": "x"}], [], "m", **kw))
+
+
+def test_retries_transient_errors_with_backoff(_fast_retries) -> None:
+    client, seen = _client(lambda n, r: httpx.Response(503, text="busy") if n < 3 else _ok())
+    assert _chat(client).content == "hi"
+    assert len(seen) == 3
+    assert _fast_retries == [1.0, 2.0]
+
+
+def test_gives_up_after_max_retries() -> None:
+    client, seen = _client(lambda n, r: httpx.Response(429, text="slow down"))
+    with pytest.raises(LLMError, match="429"):
+        _chat(client)
+    assert len(seen) == 3
+
+
+def test_client_errors_are_not_retried() -> None:
+    client, seen = _client(lambda n, r: httpx.Response(400, text="bad model"))
+    with pytest.raises(LLMError, match="bad model"):
+        _chat(client)
+    assert len(seen) == 1
+
+
+def test_network_errors_are_retried() -> None:
+    def handler(n, request):
+        if n == 1:
+            raise httpx.ConnectError("boom")
+        return _ok()
+
+    client, seen = _client(handler)
+    assert _chat(client).content == "hi"
+    assert len(seen) == 2
+
+
+def test_user_id_header_is_forwarded_when_given() -> None:
+    client, seen = _client(lambda n, r: _ok())
+    _chat(client, user_id="usr_1")
+    _chat(client)
+    assert seen[0].headers["x-user-id"] == "usr_1"
+    assert "x-user-id" not in seen[1].headers
+
+
+def test_truncated_output_is_an_error() -> None:
+    client, _ = _client(
+        lambda n, r: httpx.Response(200, json={"choices": [{"message": {"content": "par"}, "finish_reason": "length"}]})
+    )
+    with pytest.raises(LLMError, match="truncated"):
+        _chat(client)
+
+
+def test_malformed_tool_arguments_are_flagged_not_guessed() -> None:
+    call = {"id": "c1", "function": {"name": "write_file", "arguments": '{"path": "/workspace/a", "content": "unterminated'}}
+    client, _ = _client(lambda n, r: _ok(content="", tool_calls=[call]))
+    resp = _chat(client)
+    assert INVALID_ARGUMENTS_KEY in resp.tool_calls[0].arguments
+    assert "path" not in resp.tool_calls[0].arguments
+
+
+def test_reasoning_content_is_captured() -> None:
+    client, _ = _client(lambda n, r: _ok(reasoning_content="thinking..."))
+    assert _chat(client).reasoning_content == "thinking..."

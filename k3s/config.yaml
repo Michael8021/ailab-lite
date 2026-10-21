@@ -1,0 +1,15 @@
+# /etc/rancher/k3s/config.yaml —— 单节点 k3s，版本与大集群 kubeadm 对齐到 1.34
+# 关掉的组件：traefik（入口用 Higress）、servicelb（会抢宿主机 80/443，本机 nginx 在用 80）、
+# metrics-server（省内存）。k3s 自带的 NetworkPolicy 控制器保留，沙箱出网控制靠它。
+write-kubeconfig-mode: "0600"
+disable:
+  - traefik
+  - servicelb
+  - metrics-server
+# 与 docker 的 172.17/16 段错开（k3s 默认值，写出来便于核对）
+cluster-cidr: 10.42.0.0/16
+service-cidr: 10.43.0.0/16
+kubelet-arg:
+  # 2 vCPU / 7.7G 小机器：给系统和本机已有服务留足资源
+  - "system-reserved=cpu=500m,memory=1536Mi"
+  - "eviction-hard=memory.available<500Mi"

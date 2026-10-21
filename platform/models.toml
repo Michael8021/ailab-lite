@@ -1,0 +1,34 @@
+# Models users can pick in the Portal.
+#
+# The user sees only `id`, `name`, `description` and `weight`. Where the model really runs
+# (`base_url`, `upstream_model`) and which key reaches it stay on the server.
+#
+# A key never appears in this file: `api_key_env` names an environment variable (it must start with
+# AILAB_KEY_) that holds it - a Kubernetes Secret entry, or platform/.env on a dev machine. A model
+# whose key is missing is hidden from users instead of failing when someone picks it.
+#
+# Adding a model later (e.g. one served by GPUStack behind Higress) is one more [[models]] block:
+# point base_url at the gateway and make upstream_model the alias the gateway routes on.
+#
+#   id              what users select and what runs/usage records store (letters, digits . _ -)
+#   provider        "openai" = any OpenAI-compatible chat API (DeepSeek, Higress, vLLM...) | "mock"
+#   weight          quota multiplier: a call costs tokens x weight against the daily/monthly limits
+#   default         the model preselected for new runs (exactly one, or the first one is used)
+
+[[models]]
+id = "ailab-agent-pro"
+name = "AILab 旗舰"
+description = "复杂任务与工具调用，质量优先。"
+provider = "openai"
+base_url = "https://api.deepseek.com"
+api_key_env = "AILAB_KEY_DEEPSEEK"
+upstream_model = "deepseek-chat"
+weight = 3
+default = true
+
+[[models]]
+id = "ailab-demo"
+name = "离线演示"
+description = "不调用任何模型，按固定脚本演示完整链路；不花 token，可离线使用。"
+provider = "mock"
+weight = 0.1

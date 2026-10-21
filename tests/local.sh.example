@@ -1,0 +1,15 @@
+# 复制为 tests/local.sh 后按需修改（local.sh 不入库）。
+
+# 例：每周一到周五 UTC 01:15-08:40 不动宿主机
+guard_busy_window() {
+  local dow hm
+  dow=$(date -u +%u); hm=$((10#$(date -u +%H%M)))
+  if [ "$dow" -le 5 ] && [ "$hm" -ge 115 ] && [ "$hm" -lt 840 ] && [ "${FORCE:-0}" != 1 ]; then
+    fail "现在是忙时（UTC $(date -u +%H:%M)），不动宿主机；确需执行用 FORCE=1"
+  fi
+}
+
+# 例：探测本机一个关键服务，改动前后各打印一行
+host_probe() {
+  curl -fsS -m 5 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && echo "HOST_PROBE ok" || echo "HOST_PROBE down"
+}
