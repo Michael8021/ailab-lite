@@ -273,6 +273,44 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 | OpenSandbox + gVisor | OpenSandbox dev server（Docker/runc） | ✅ API 链路；k8s 控制面 + gVisor 待 T2 |
 | Keycloak | 静态 dev token | 后续接 OIDC |
 
+## 可观测性
+
+**请求 ID 与日志**（`ailab_platform/obs.py`）
+- 每个请求有一个 ID：接受调用方的 `X-Request-ID`（只收 1~64 位字母数字和 `._-`，否则换一个新的），写进响应头和每一行日志，
+  并随内部调用一路传给下一个服务（Portal → API → Broker …），一次用户操作能跨服务查到。
+- Agent 处理任务时直接用 **run_id** 当关联 ID，Worker 用文件 ID：`grep "[run_xxx]"` 就能在 API、Broker、Agent 三个服务的日志里看到同一个任务的全部记录。
+- `AILAB_LOG_FORMAT=json` 输出每行一个 JSON（`ts/level/service/logger/request_id/msg/exc`），默认是带 `[request_id]` 的文本。
+  探针和 `/metrics` 不进访问日志（会淹没日志）。
+
+**指标**（每个服务各有 `/metrics`，Prometheus 文本格式）
+- 认证：服务令牌，`Authorization: Bearer <AILAB_SERVICE_TOKEN>`（Prometheus 抓取配置的 `authorization.credentials`）或 `X-Service-Token`；**用户令牌读不了**。
+- 只放能回答运维问题的：
+
+| 问题 | 指标 |
+|---|---|
+| 有没有积压？ | `ailab_queue_depth{queue}`、`ailab_runs_in_state{status}`（API） |
+| 任务耗时/失败率？ | `ailab_runs_total{status}`、`ailab_run_seconds{status}`（API）、`ailab_agent_run_seconds{outcome}`（Agent） |
+| 沙箱够不够、慢不慢？ | `ailab_sandbox_leases_active`、`ailab_sandbox_capacity`、`ailab_sandbox_acquire_seconds`、`ailab_sandbox_exec_seconds`、`ailab_sandbox_capacity_rejections_total`（Broker） |
+| 模型调用？ | `ailab_llm_calls_total{model,outcome}`、`ailab_llm_call_seconds{model}`、`ailab_model_tokens_total{model,kind=prompt|completion|cached}` |
+| 工具调用？ | `ailab_tool_calls_total{tool,ok}`、`ailab_tool_seconds{tool}` |
+| 配额/重试？ | `ailab_quota_rejections_total{kind}`、`ailab_reaper_actions_total{action}`、`ailab_agent_recovered_total` |
+| 文件/产出？ | `ailab_files_processed_total{outcome}`、`ailab_file_processing_seconds`、`ailab_artifact_bytes_total` |
+| HTTP | `ailab_http_requests_total{service,method,route,status}`、`ailab_http_request_seconds`（首字节时间，SSE 不会被算成慢请求） |
+| 内存/CPU | `process_resident_memory_bytes`、`process_cpu_seconds_total`（prometheus_client 自带） |
+
+- **标签基数有界**：HTTP 的 `route` 是路由模板（`/v1/runs/{run_id}`），不是具体路径；工具名和模型名来自外部（模型可能编出工具名），
+  不在已知集合里的一律记为 `other`；run_id、用户 ID 绝不做标签。
+- 抓取配置示例（集群里还没装 Prometheus；装了以后这样接）：
+```yaml
+scrape_configs:
+  - job_name: ailab
+    authorization: {credentials_file: /etc/prometheus/ailab-service-token}   # AILAB_SERVICE_TOKEN
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["platform-api:8080", "127.0.0.1:8081", "platform-agent:8082", "platform-worker:8083"]   # 8081 是 Broker（hostNetwork）
+```
+- 手动看一眼：`curl -s -H "Authorization: Bearer $AILAB_SERVICE_TOKEN" http://127.0.0.1:30080/metrics | grep ailab_`
+
 ## 数据库迁移（Alembic）
 
 表结构由迁移管理，不再用 `create_all`（它不会改已有的表）。
@@ -306,7 +344,7 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 
 ## 浏览器 E2E 测试（`platform/e2e/`）
 
-`pytest tests` 只测后端；Portal 的行为靠真实浏览器测试守住（`e2e/test_portal.py`，12 个）：匿名访问只见登录页、
+`pytest tests` 只测后端；Portal 的行为靠真实浏览器测试守住（`e2e/test_portal.py` 12 个 + `e2e/test_operations.py` 5 个：四个服务各自的指标、一个任务的 ID 贯穿三个服务的日志）：匿名访问只见登录页、
 错误令牌被拒、登录后回到原页面、**令牌不进页面脚本/存储/下载链接/任何 JS 包**（Cookie 为 httpOnly + SameSite=Strict）、
 代理只暴露 `/v1`、跨站写请求被拒、选模型、建任务并看到 SSE 时间线跑到 `run.completed`、下载产出、
 上传先隔离后可下载、感染文件被拒且无法下载、删除、退出。

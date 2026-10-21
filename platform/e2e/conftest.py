@@ -50,7 +50,12 @@ def pytest_collection_modifyitems(config, items):
 class Stack:
     portal: str
     api: str
+    broker: str
+    agent: str
+    worker: str
     token: str = TOKEN
+    service_token: str = SERVICE_TOKEN
+    log_dir: Path = LOG_DIR
 
 
 def _wait(url: str, what: str, seconds: int = 90) -> None:
@@ -144,7 +149,13 @@ def stack(tmp_path_factory):
             {"AILAB_API_BASE": f"http://127.0.0.1:{ports['api']}"},
         )
         _wait(f"http://127.0.0.1:{PORTAL_PORT}/login", "portal")
-        yield Stack(portal=f"http://127.0.0.1:{PORTAL_PORT}", api=f"http://127.0.0.1:{ports['api']}")
+        yield Stack(
+            portal=f"http://127.0.0.1:{PORTAL_PORT}",
+            api=f"http://127.0.0.1:{ports['api']}",
+            broker=f"http://127.0.0.1:{ports['broker']}",
+            agent=f"http://127.0.0.1:{ports['agent']}",
+            worker=f"http://127.0.0.1:{ports['worker']}",
+        )
     finally:
         for proc in procs:
             proc.terminate()

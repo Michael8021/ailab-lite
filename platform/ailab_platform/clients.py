@@ -12,6 +12,7 @@ from typing import Any, NamedTuple
 import httpx
 
 from .config import settings
+from .obs import NO_REQUEST, REQUEST_ID_HEADER, request_id_var
 
 
 class ClientError(RuntimeError):
@@ -47,7 +48,11 @@ class _Service:
         return {"X-Service-Token": self.token}
 
     def _req(self, method: str, path: str, timeout: float = 30, **kwargs) -> Request:
-        return Request(method, f"{self.base_url}{path}", timeout, {"headers": self.headers, **kwargs})
+        headers = dict(self.headers)
+        rid = request_id_var.get()
+        if rid != NO_REQUEST:  # carry the correlation id into the next service's logs
+            headers[REQUEST_ID_HEADER] = rid
+        return Request(method, f"{self.base_url}{path}", timeout, {"headers": headers, **kwargs})
 
 
 class _PlatformApi(_Service):

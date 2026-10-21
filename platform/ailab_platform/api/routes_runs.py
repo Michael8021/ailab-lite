@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import metrics
 from ..catalog import get_catalog
 from ..config import settings
 from ..db import SessionLocal
@@ -62,6 +63,7 @@ def create_run(body: RunCreate, user: User = Depends(current_user), db: Session 
 
     active = db.scalar(select(func.count()).select_from(Run).where(Run.user_id == user.id, Run.status.in_(RunStatus.ACTIVE)))
     if active >= settings.max_active_runs_per_user:
+        metrics.QUOTA_REJECTIONS.labels("active_runs").inc()
         raise HTTPException(status_code=429, detail="too many active runs for this user")
 
     inputs: list[str] = []

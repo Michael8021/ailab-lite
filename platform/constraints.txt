@@ -85,6 +85,8 @@ pluggy==1.7.0
     # via
     #   pytest
     #   pytest-cov
+prometheus-client==0.26.0
+    # via ailab-platform (pyproject.toml)
 psycopg==3.3.6
     # via ailab-platform (pyproject.toml)
 psycopg-binary==3.3.6

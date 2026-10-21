@@ -8,17 +8,20 @@ import os
 import socket
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Response
 
 from ..catalog import get_catalog
 from ..clients import AsyncPlatformClient
 from ..config import settings
+from ..deps import metrics_auth
+from ..metrics import metrics_response
 from ..models import RunStatus
+from ..obs import NO_REQUEST, RequestContextMiddleware, request_id_var, setup_logging
 from ..queue import Message, get_queue, run_lock_key
 from .loop import AgentLoop
 from .prompts import system_prompt
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+setup_logging("agent")
 log = logging.getLogger("ailab.agent")
 _task: asyncio.Task | None = None
 
@@ -105,6 +108,7 @@ async def consume_forever() -> None:
             continue
         if msg is None:
             continue
+        rid = request_id_var.set(str(msg.payload.get("run_id") or NO_REQUEST))  # every log line about this run carries its id
         try:
             await handle_message(loop, queue, msg)
         except asyncio.CancelledError:
@@ -113,6 +117,8 @@ async def consume_forever() -> None:
             # e.g. the queue went away between process and ack: the message will
             # be redelivered after the visibility timeout and the run lock guards it.
             log.exception("could not finish handling run message %s", msg.id)
+        finally:
+            request_id_var.reset(rid)
 
 
 @asynccontextmanager
@@ -134,6 +140,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AILab Agent Service", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RequestContextMiddleware, service="agent")
 
 
 @app.get("/healthz")
@@ -148,3 +155,8 @@ def readyz() -> dict:
     except Exception:
         queue_ok = False
     return {"ok": queue_ok, "queue": queue_ok, "consumer_running": bool(_task and not _task.done())}
+
+
+@app.get("/metrics", include_in_schema=False, dependencies=[Depends(metrics_auth)])
+def metrics_endpoint() -> Response:
+    return metrics_response()

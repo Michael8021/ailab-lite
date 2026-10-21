@@ -6,7 +6,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -14,15 +14,17 @@ from sqlalchemy import text
 from ..catalog import get_catalog
 from ..config import settings
 from ..db import SessionLocal, init_db
-from ..deps import current_user
+from ..deps import current_user, metrics_auth
+from ..metrics import ApiStateCollector, metrics_response, register_once
 from ..models import User
+from ..obs import RequestContextMiddleware, setup_logging
 from ..queue import get_queue
 from .reaper import reap_forever
 from .routes_files import router as files_router
 from .routes_internal import router as internal_router
 from .routes_runs import router as runs_router
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+setup_logging("api")
 log = logging.getLogger("ailab.api")
 
 
@@ -31,6 +33,7 @@ async def lifespan(_: FastAPI):
     settings.validate_secrets()
     settings.ensure_dirs()
     get_catalog()  # fail at startup, not on the first request, if models.toml is broken
+    register_once("api-state", ApiStateCollector())
     init_db()
     log.info("platform api ready db=%s storage=%s", settings.database_url, settings.storage_backend)
     reaper = asyncio.create_task(reap_forever(), name="reaper")
@@ -44,6 +47,7 @@ app = FastAPI(
     description="Identity, runs, files, events and the artifact ledger. Sole DB writer.",
     lifespan=lifespan,
 )
+app.add_middleware(RequestContextMiddleware, service="api")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -116,3 +120,8 @@ def root() -> dict:
         "docs": "/docs",
         "health": "/healthz",
     }
+
+
+@app.get("/metrics", include_in_schema=False, dependencies=[Depends(metrics_auth)])
+def metrics_endpoint() -> Response:
+    return metrics_response()

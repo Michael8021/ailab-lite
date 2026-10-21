@@ -14,6 +14,7 @@ from pathlib import Path
 
 import redis
 
+from .. import metrics
 from ..clients import PlatformClient
 from ..config import settings
 from ..paths import OUTPUTS, PathError, normalize_path
@@ -119,8 +120,10 @@ class LeaseManager:
                 return existing
             active = self.active_leases()
             if len(active) >= settings.max_sandboxes:
+                metrics.SANDBOX_CAPACITY_REJECTIONS.inc()
                 raise CapacityError(f"sandbox capacity reached ({settings.max_sandboxes})")
 
+            started = time.perf_counter()
             lease_id = f"lease_{uuid.uuid4().hex[:16]}"
             try:
                 sandbox_id = self.provider.acquire(
@@ -166,6 +169,7 @@ class LeaseManager:
             self.release(lease_id, reason="input_injection_failed")
             raise LeaseError(f"input injection failed: {exc}") from exc
 
+        metrics.SANDBOX_ACQUIRE_SECONDS.observe(time.perf_counter() - started)
         try:
             self.platform.append_event(
                 run_id,
@@ -199,7 +203,8 @@ class LeaseManager:
     def exec(self, lease_id: str, cmd: str, timeout: int | None = None) -> ExecResult:
         lease = self._load(lease_id)
         timeout = timeout or settings.sandbox_exec_timeout_seconds
-        return self.provider.exec(lease["sandbox_id"], cmd, timeout)
+        with metrics.SANDBOX_EXEC_SECONDS.labels(self.provider.name).time():
+            return self.provider.exec(lease["sandbox_id"], cmd, timeout)
 
     @staticmethod
     def _checked(path: str, under: str = "/workspace") -> str:
@@ -249,7 +254,9 @@ class LeaseManager:
             "role": role,
         }
         try:
-            return self.platform.commit_artifact(payload)
+            delivered = self.platform.commit_artifact(payload)
+            metrics.ARTIFACT_BYTES.inc(len(data))
+            return delivered
         except Exception:
             log.exception("artifact commit failed for lease %s staging=%s", lease_id, staging_key)
             # A retry stages a fresh object under a new key, so this one would leak.

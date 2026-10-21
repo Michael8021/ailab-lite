@@ -31,6 +31,13 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def metrics_auth(request: Request, x_service_token: str | None = Header(default=None)) -> None:
+    """/metrics shows traffic and queue sizes: guard it with the service token, in either of the two forms."""
+    bearer = bearer_token(request)
+    if not (service_token_ok(x_service_token) or service_token_ok(bearer)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="service token required")
+
+
 def service_auth(x_service_token: str | None = Header(default=None)) -> None:
     if not service_token_ok(x_service_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="service token required")

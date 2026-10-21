@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable
 from typing import TypeVar
 
+from .. import metrics
 from ..clients import AsyncBrokerClient, AsyncPlatformClient, ClientError
 from ..config import settings
 from ..llm import INVALID_ARGUMENTS_KEY, LLMClient, llm_for
@@ -146,6 +148,10 @@ class AgentLoop:
                 {"attempt": attempt, "note": "previous agent attempt did not finish; restarting the task"},
             )
 
+        run_started = time.perf_counter()
+        outcome = "error"  # replaced below once we know how the run ended
+        if attempt > 1:
+            metrics.AGENT_RECOVERED.inc()
         lease_id: str | None = None
         final_summary = ""
         artifacts: list[dict] = []
@@ -169,7 +175,19 @@ class AgentLoop:
                 if await self._is_canceled(run_id):
                     raise RunCanceled()
 
-                response = await self._interruptible(run_id, llm.chat(messages, TOOLS, model, user_id=run.get("user_id")))
+                model_label = metrics.model_label(model)
+                call_started = time.perf_counter()
+                try:
+                    response = await self._interruptible(run_id, llm.chat(messages, TOOLS, model, user_id=run.get("user_id")))
+                except RunCanceled:
+                    metrics.LLM_CALLS.labels(model_label, "canceled").inc()
+                    raise
+                except Exception:
+                    metrics.LLM_CALLS.labels(model_label, "error").inc()
+                    metrics.LLM_SECONDS.labels(model_label).observe(time.perf_counter() - call_started)
+                    raise
+                metrics.LLM_CALLS.labels(model_label, "ok").inc()
+                metrics.LLM_SECONDS.labels(model_label).observe(time.perf_counter() - call_started)
                 if response.usage:
                     total_tokens += response.usage.get("prompt_tokens", 0) + response.usage.get("completion_tokens", 0)
                     try:
@@ -213,6 +231,8 @@ class AgentLoop:
                         "agent.tool_call",
                         {"step": step, "name": call.name, "arguments": _clip_arguments(call.arguments)},
                     )
+                    tool = metrics.tool_label(call.name)
+                    tool_started = time.perf_counter()
                     try:
                         result = await self._interruptible(run_id, execute_tool(call.name, call.arguments, lease_id, self.broker))
                     except RunCanceled:
@@ -223,6 +243,8 @@ class AgentLoop:
                         log.exception("tool %s failed", call.name)
                         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+                    metrics.TOOL_SECONDS.labels(tool).observe(time.perf_counter() - tool_started)
+                    metrics.TOOL_CALLS.labels(tool, str(bool(result.get("ok"))).lower()).inc()
                     await self._event(
                         run_id,
                         "agent.tool_result",
@@ -266,6 +288,7 @@ class AgentLoop:
                     summary=final_summary or "任务完成",
                     result={"artifacts": artifacts},
                 )
+                outcome = "succeeded"
             else:
                 await self.platform.set_run_status(
                     run_id,
@@ -274,7 +297,9 @@ class AgentLoop:
                     summary=final_summary,
                     result={"artifacts": artifacts},
                 )
+                outcome = "failed"
         except RunCanceled:
+            outcome = "canceled"
             await self._event(run_id, "agent.canceled", {})
         except asyncio.CancelledError:
             raise
@@ -286,6 +311,7 @@ class AgentLoop:
             except Exception:
                 log.exception("could not mark run %s failed", run_id)
         finally:
+            metrics.AGENT_RUN_SECONDS.labels(outcome).observe(time.perf_counter() - run_started)
             if lease_id:
                 try:
                     await self.broker.release(lease_id)

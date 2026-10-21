@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from . import metrics
 from .events import append_event
 from .models import Run, RunStatus
 
@@ -63,6 +64,12 @@ def transition_run(
     if not won:
         return run, False  # someone else moved it first; theirs stands
 
+    metrics.RUNS.labels(new_status).inc()
+    if new_status in RunStatus.TERMINAL:
+        started = run.started_at or run.created_at
+        if started.tzinfo is None:  # SQLite drops tzinfo
+            started = started.replace(tzinfo=UTC)
+        metrics.RUN_SECONDS.labels(new_status).observe(max(0.0, (now - started).total_seconds()))
     append_event(db, run.id, "run.status", {"status": run.status})
     if new_status == RunStatus.SUCCEEDED:
         append_event(db, run.id, "run.completed", {"summary": run.summary, "result": run.result})

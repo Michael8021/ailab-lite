@@ -9,12 +9,14 @@ from dataclasses import asdict
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Response, status
 
 from ..config import settings
-from ..deps import service_auth
+from ..deps import metrics_auth, service_auth
+from ..metrics import BrokerStateCollector, metrics_response, register_once
+from ..obs import RequestContextMiddleware, setup_logging
 from ..sandbox import SandboxError
 from ..schemas import CommitIn, CommitOut, ExecIn, ExecOut, LeaseCreate, LeaseOut
 from .service import ArtifactRejected, CapacityError, LeaseError, LeaseManager
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+setup_logging("broker")
 log = logging.getLogger("ailab.broker")
 
 _manager: LeaseManager | None = None
@@ -32,6 +34,7 @@ async def lifespan(_: FastAPI):
     settings.validate_secrets()
     settings.ensure_dirs()
     manager = get_manager()
+    register_once("broker-state", BrokerStateCollector(get_manager))
     try:
         manager.recover()
         manager.start_cleanup_thread()
@@ -42,6 +45,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AILab Sandbox Broker", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RequestContextMiddleware, service="broker")
 router = APIRouter(prefix="/internal", tags=["leases"], dependencies=[Depends(service_auth)])
 
 
@@ -168,3 +172,8 @@ def readyz() -> dict:
         "provider": manager.provider.name,
         "provider_healthy": manager.provider.health(),
     }
+
+
+@app.get("/metrics", include_in_schema=False, dependencies=[Depends(metrics_auth)])
+def metrics_endpoint() -> Response:
+    return metrics_response()

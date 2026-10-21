@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import metrics
 from ..config import settings
 from ..db import SessionLocal
 from ..events import append_event
@@ -49,6 +50,7 @@ def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict
             queue.enqueue(settings.run_queue, {"run_id": run.id})
             append_event(db, run.id, "run.requeued", {"reason": "no queue message found"})
             stats["runs_requeued"] += 1
+            metrics.REAPER_ACTIONS.labels("run_requeued").inc()
             log.warning("requeued run %s: it was queued but had no queue message", run.id)
         else:  # running
             if queue.is_locked(run_lock_key(run.id)):
@@ -63,6 +65,8 @@ def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict
                 error="agent lost: the run was executing but no agent or queue message remains",
             )
             stats["runs_failed"] += int(changed)
+            if changed:
+                metrics.REAPER_ACTIONS.labels("run_failed").inc()
             log.warning("failed run %s: running with no agent and no queue message", run.id)
 
     queued_files = {p.get("file_id") for p in queue.outstanding(settings.file_queue)}
@@ -73,6 +77,7 @@ def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict
             continue
         queue.enqueue(settings.file_queue, {"file_id": file.id})
         stats["files_requeued"] += 1
+        metrics.REAPER_ACTIONS.labels("file_requeued").inc()
         log.warning("requeued file %s: pending scan had no queue message", file.id)
     return stats
 

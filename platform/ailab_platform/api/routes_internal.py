@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import metrics
 from ..catalog import get_catalog
 from ..config import settings
 from ..deps import get_db, service_auth
@@ -78,6 +79,10 @@ def internal_append_event(run_id: str, body: EventIn, db: Session = Depends(get_
 @router.post("/runs/{run_id}/usage")
 def internal_usage(run_id: str, body: UsageIn, db: Session = Depends(get_db)) -> dict:
     _run_or_404(db, run_id)
+    model = metrics.model_label(body.model)
+    metrics.MODEL_TOKENS.labels(model, "prompt").inc(body.prompt_tokens)
+    metrics.MODEL_TOKENS.labels(model, "completion").inc(body.completion_tokens)
+    metrics.MODEL_TOKENS.labels(model, "cached").inc(min(body.cached_tokens, body.prompt_tokens))
     db.add(
         ModelUsage(
             run_id=run_id,

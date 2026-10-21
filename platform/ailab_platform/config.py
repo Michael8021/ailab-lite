@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     )
 
     env: str = "dev"
+    log_format: str = "text"  # text | json (one object per line, with the request id)
     api_base_url: str = "http://127.0.0.1:8080"
     broker_base_url: str = "http://127.0.0.1:8081"
     agent_base_url: str = "http://127.0.0.1:8082"
