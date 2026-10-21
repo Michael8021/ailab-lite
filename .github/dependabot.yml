@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # The Python pins live in platform/constraints.txt (bash platform/scripts/lock_deps.sh); the weekly
+  # audit workflow reports vulnerable ones. Dependabot covers what it understands natively.
+  - package-ecosystem: npm
+    directory: /platform/portal
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 3
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 3

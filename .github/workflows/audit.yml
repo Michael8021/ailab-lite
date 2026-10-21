@@ -1,0 +1,35 @@
+name: Dependency audit
+
+# Known-vulnerability scan of the pinned dependencies. Weekly rather than on every push so that a
+# newly published advisory does not turn an unrelated pull request red.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r platform/constraints.txt --no-deps --disable-pip
+
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --no-fund
+      - run: npm audit --omit=dev --audit-level=high

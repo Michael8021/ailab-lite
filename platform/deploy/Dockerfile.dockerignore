@@ -1,5 +1,6 @@
 *
 !platform/pyproject.toml
+!platform/constraints.txt
 !platform/README.md
 !platform/models.toml
 !platform/ailab_platform

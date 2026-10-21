@@ -11,13 +11,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY platform/pyproject.toml platform/README.md ./
+COPY platform/pyproject.toml platform/constraints.txt platform/README.md ./
 COPY platform/ailab_platform ./ailab_platform
 COPY images/sbx-office/skills /opt/ailab/skills
 COPY platform/models.toml /etc/ailab/models.toml
 RUN pip install --upgrade pip \
- && pip install . \
- && pip install "opensandbox==1.1.1"
+ && pip install -c constraints.txt . \
+ && pip install -c constraints.txt "opensandbox==1.1.1"
 
 RUN useradd -u 10001 -m appuser \
  && mkdir -p /data \

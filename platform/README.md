@@ -273,6 +273,16 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 | OpenSandbox + gVisor | OpenSandbox dev server（Docker/runc） | ✅ API 链路；k8s 控制面 + gVisor 待 T2 |
 | Keycloak | 静态 dev token | 后续接 OIDC |
 
+## 依赖锁定、格式与 CI
+
+- **依赖锁定**：`pyproject.toml` 只写版本下限，实际安装的版本固定在 `platform/constraints.txt`（所有直接和间接依赖）。
+  Docker 镜像和 CI 都用 `pip install -c constraints.txt …`，所以每次构建得到同一套版本。
+  更新：`bash scripts/lock_deps.sh`（用 uv 重新解析并重写文件，改完跑一遍测试）；`--check` 在 CI 里确认它和 `pyproject.toml` 一致。
+  Portal 用 `package-lock.json`（`npm ci`）。
+- **格式与检查**：`ruff check .` 和 `ruff format --check .`（版本固定为 0.17.1）；提交前跑 `ruff format .`。
+- **CI**（`.github/workflows/ci.yml`）：Python（锁文件一致性 + ruff + pytest 带覆盖率门槛，并起 Redis 服务让真实 Streams 测试也跑）、
+  Portal 构建、ShellCheck。`audit.yml` 每周对锁定的依赖做已知漏洞扫描（`pip-audit`、`npm audit`）。
+
 ## 测试与 CI
 
 ```bash

@@ -33,11 +33,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: platform/pyproject.toml
-      - name: Install
-        run: pip install -e '.[dev]'
+          cache-dependency-path: platform/constraints.txt
+      - name: Lockfile is consistent with pyproject.toml
+        run: bash scripts/lock_deps.sh --check
+      - name: Install (pinned)
+        run: pip install -c constraints.txt -e '.[dev]'
       - name: Ruff
-        run: ruff check .
+        run: ruff check . && ruff format --check .
       - name: Tests
         run: pytest -q --cov=ailab_platform --cov-report=term-missing
 
