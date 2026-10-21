@@ -77,7 +77,12 @@ def _build_portal(workdir: Path) -> Path:
             shutil.copytree(src, dst / name)
         else:
             shutil.copy2(src, dst / name)
-    (dst / "node_modules").symlink_to(PORTAL_SRC / "node_modules")
+    # Not a symlink: Turbopack (Next 16's default) refuses to resolve files outside the workspace root.
+    # A hard-link copy is instant and stays inside it; fall back to a real copy across filesystems.
+    linked = subprocess.run(["cp", "-al", str(PORTAL_SRC / "node_modules"), str(dst / "node_modules")], capture_output=True)
+    if linked.returncode != 0:
+        shutil.rmtree(dst / "node_modules", ignore_errors=True)
+        shutil.copytree(PORTAL_SRC / "node_modules", dst / "node_modules", symlinks=True)
     subprocess.run(["npm", "run", "build"], cwd=dst, check=True, capture_output=True, text=True, timeout=600)
     return dst
 

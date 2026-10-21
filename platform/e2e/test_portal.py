@@ -119,7 +119,7 @@ def test_a_task_runs_to_completion_and_its_timeline_streams_in(logged_in) -> Non
     assert "model: test-fast" in body
     for event in ("run.created", "agent.started", "agent.tool_call", "run.completed"):
         assert event in body, f"{event} missing from the timeline"
-    assert page.locator(".status.succeeded").count() >= 1
+    page.locator("main .row .status.succeeded").first.wait_for(timeout=10000)  # the badge follows the timeline by one reload
 
 
 def test_the_chosen_model_is_remembered(logged_in, stack) -> None:

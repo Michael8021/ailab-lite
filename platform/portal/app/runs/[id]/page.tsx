@@ -56,9 +56,15 @@ export default function RunPage() {
   const [streaming, setStreaming] = useState(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
+  // Several events can each trigger a reload while earlier ones are still in flight. Only the most recently
+  // issued reload may update the page: otherwise a slow "running" response arriving after the "succeeded"
+  // one would put the stale status back, and nothing would refresh it once the stream has ended.
+  const loadSeq = useRef(0);
   const loadRun = useCallback(async () => {
+    const mine = ++loadSeq.current;
     try {
-      setRun(await api<Run>(`/v1/runs/${id}`));
+      const fresh = await api<Run>(`/v1/runs/${id}`);
+      if (mine === loadSeq.current) setRun(fresh);
     } catch (err: any) {
       setError(String(err?.message || err));
     }
