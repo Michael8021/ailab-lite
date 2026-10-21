@@ -8,22 +8,29 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .catalog import get_catalog
 from .config import settings
 from .models import FileObject, FileStatus, ModelUsage, Run
 
 
 def tokens_used_since(db: Session, user_id: str, since: datetime) -> int:
-    """Weighted tokens: a call to a model with weight 3 costs three times its raw token count,
-    so the limits roughly track compute rather than tokens."""
-    rows = db.execute(
-        select(ModelUsage.model, func.sum(ModelUsage.prompt_tokens + ModelUsage.completion_tokens))
+    """Weighted tokens used since ``since``.
+
+    Per call: (uncached prompt + cached prompt x cached_token_weight + completion) x the model's weight
+    *as recorded with that call*, so changing a weight or the cache discount later never rewrites history.
+    """
+    cost = (
+        ModelUsage.prompt_tokens
+        - ModelUsage.cached_tokens
+        + ModelUsage.cached_tokens * settings.cached_token_weight
+        + ModelUsage.completion_tokens
+    ) * ModelUsage.weight
+    total = db.scalar(
+        select(func.coalesce(func.sum(cost), 0.0))
+        .select_from(ModelUsage)
         .join(Run, Run.id == ModelUsage.run_id)
         .where(Run.user_id == user_id, ModelUsage.created_at >= since)
-        .group_by(ModelUsage.model)
-    ).all()
-    catalog = get_catalog()
-    return int(sum((tokens or 0) * catalog.weight_of(model) for model, tokens in rows))
+    )
+    return round(total or 0)
 
 
 def usage_summary(db: Session, user_id: str) -> dict:

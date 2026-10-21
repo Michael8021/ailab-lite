@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..catalog import get_catalog
 from ..config import settings
 from ..deps import get_db, service_auth
 from ..events import append_event
@@ -83,6 +84,9 @@ def internal_usage(run_id: str, body: UsageIn, db: Session = Depends(get_db)) ->
             model=body.model,
             prompt_tokens=body.prompt_tokens,
             completion_tokens=body.completion_tokens,
+            cached_tokens=min(body.cached_tokens, body.prompt_tokens),
+            # Frozen now: a later edit of models.toml must not change what this call cost.
+            weight=get_catalog().weight_of(body.model),
         )
     )
     db.commit()

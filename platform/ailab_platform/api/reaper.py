@@ -77,9 +77,23 @@ def reap_once(db: Session, queue: JobQueue, now: datetime | None = None) -> dict
     return stats
 
 
-def _tick() -> dict[str, int]:
-    with SessionLocal() as db:
-        return reap_once(db, get_queue())
+REAPER_LOCK = "ailab:lock:reaper"
+
+
+def reap_guarded(queue: JobQueue, session_factory=SessionLocal) -> dict[str, int] | None:
+    """One reaper pass, but only if no other API replica ran one within the last interval.
+
+    The lock is deliberately not released: it expires on its own, so a replica that wakes up a moment
+    later skips this round instead of repeating it. Several replicas thus share one pass per interval.
+    """
+    if queue.acquire_lock(REAPER_LOCK, max(1, int(settings.reaper_interval_seconds * 0.8))) is None:
+        return None
+    with session_factory() as db:
+        return reap_once(db, queue)
+
+
+def _tick() -> dict[str, int] | None:
+    return reap_guarded(get_queue())
 
 
 async def reap_forever() -> None:

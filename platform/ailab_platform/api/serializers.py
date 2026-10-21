@@ -65,6 +65,7 @@ def run_dict(db: Session, run: Run, detail: bool = False) -> dict:
         out["usage"] = {
             "prompt_tokens": sum(u.prompt_tokens for u in usage),
             "completion_tokens": sum(u.completion_tokens for u in usage),
+            "cached_tokens": sum(u.cached_tokens for u in usage),
             "calls": len(usage),
         }
     return out

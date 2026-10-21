@@ -12,7 +12,17 @@ os.environ["AILAB_ENV_FILE"] = os.path.join(_TMP, "no-such.env")
 os.environ.setdefault("AILAB_ENV", "test")
 os.environ["AILAB_DATA_DIR"] = _TMP
 os.environ["AILAB_STORAGE_ROOT"] = os.path.join(_TMP, "storage")
-os.environ["AILAB_DATABASE_URL"] = f"sqlite:///{os.path.join(_TMP, 'test.db')}"
+# AILAB_TEST_DATABASE_URL runs the whole suite on another database (a throwaway PostgreSQL); it is wiped first.
+_DB = os.environ.get("AILAB_TEST_DATABASE_URL")
+if _DB:
+    from sqlalchemy import create_engine, text
+
+    _eng = create_engine(_DB)
+    with _eng.begin() as _conn:
+        _conn.execute(text("DROP SCHEMA public CASCADE"))
+        _conn.execute(text("CREATE SCHEMA public"))
+    _eng.dispose()
+os.environ["AILAB_DATABASE_URL"] = _DB or f"sqlite:///{os.path.join(_TMP, 'test.db')}"
 os.environ["AILAB_QUEUE_BACKEND"] = "memory"
 os.environ["AILAB_SANDBOX_PROVIDER"] = "mock"
 os.environ["AILAB_MODELS_FILE"] = os.path.join(os.path.dirname(__file__), "models.test.toml")

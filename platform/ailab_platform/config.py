@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     max_active_runs_per_user: int = 2
     max_prompt_chars: int = 8000
     max_upload_bytes: int = 50 * 1024 * 1024
+    # A prompt token the upstream served from its cache costs this fraction of a normal one (design: x0.1).
+    cached_token_weight: float = 0.1
     daily_token_limit: int = 2_000_000  # per user, prompt + completion, UTC day
     monthly_token_limit: int = 30_000_000
     library_quota_bytes: int = 20 * 1024**3  # per user, rejected files excluded

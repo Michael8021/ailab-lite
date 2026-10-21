@@ -24,7 +24,7 @@ T2/T3/T4 尚未就绪的依赖用可替换适配器顶替（见文末对照表�
   （沙箱内 DNS 解析失败）、1 CPU / 1.5 GiB 资源限制。
 - `scripts/e2e_file_demo.py`：上传文件 → Worker 解析（text，29 字符）→ 带 `file_id` 建 Run →
   输入注入 `/workspace/inputs` → 产出 `answer.md`。
-- `pytest`：147 个测试通过（另有 6 个真实 Redis 变体默认跳过），覆盖率 73.6%（门槛 70%）。
+- `pytest`：约 170 个测试，覆盖率门槛 70%；真实 Redis 和 PostgreSQL 的变体通过环境变量开启（见「测试与 CI」），CI 里两者都跑。
 - Portal：`/`、`/runs/[id]`、`/files` 均返回 200，SSE 时间线可用。
 - **k3s 部署**：`deploy/k8s/platform.yaml` 已实际跑通（5 个 Pod Running，API NodePort 30080，
   Broker hostNetwork 8081），k3s 版 e2e 同样产出 `ailab-demo.pptx`。
@@ -132,7 +132,7 @@ eval "$(bash scripts/k8s_secrets.sh env)"
 - 重新认领的 Run 从头再来，事件流里会出现 `agent.recovered`（带第几次尝试）。
 - API 里有后台 **reaper**（每 `AILAB_REAPER_INTERVAL_SECONDS` 秒一轮，只处理超过 `AILAB_REAPER_GRACE_SECONDS` 的记录）：
   已提交但没有队列消息的 `queued` Run / `pending` 文件重新入队；`running` 但没有 Agent 锁、也没有队列消息的 Run 置 `failed`（Redis 重启丢消息时发生）。
-  reaper 按单实例设计，API 多副本前需要加选主。
+  多个 API 副本共用一把 Redis 锁（`ailab:lock:reaper`，不主动释放，到期自动失效），每个间隔只有一个副本执行一轮。
 - 旧版的列表队列键 `ailab:queue:*` 不再使用，升级后可手动 `DEL`。
 - 带真实 Redis 的队列测试：`AILAB_TEST_REDIS_URL=redis://127.0.0.1:6379/15 .venv/bin/pytest tests/test_queue.py`。
 
@@ -273,6 +273,27 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 | OpenSandbox + gVisor | OpenSandbox dev server（Docker/runc） | ✅ API 链路；k8s 控制面 + gVisor 待 T2 |
 | Keycloak | 静态 dev token | 后续接 OIDC |
 
+## 数据库迁移（Alembic）
+
+表结构由迁移管理，不再用 `create_all`（它不会改已有的表）。
+
+- API 启动时自动升级到最新版（`ailab_platform/migrate.py`）：
+  全新数据库直接建表；**在迁移出现之前建出来的旧库**（有表、没有 `alembic_version`）先盖上 0001 的戳再升级，数据原样保留；
+  PostgreSQL 上用咨询锁，多个副本同时启动也只会有一个在迁移。
+- 改了 `models.py` 就要写迁移：`AILAB_DATABASE_URL=sqlite:////tmp/x.db .venv/bin/alembic upgrade head`，
+  然后 `.venv/bin/alembic revision --autogenerate -m "说明"`，检查生成的文件再提交。
+  测试 `test_migrations_and_models_do_not_drift` 会在你忘了写迁移时失败。
+- 现有迁移：`0001` 初始表结构；`0002` 用量账本（见下）。
+- 本地验证 PostgreSQL：`docker run -d --name pg -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=ailab -p 127.0.0.1:55432:5432 postgres:16-alpine`，
+  再 `AILAB_TEST_DATABASE_URL=postgresql+psycopg://postgres:pg@127.0.0.1:55432/ailab pytest`
+  （整套跑在 PG 上；会清空该库，只能用一次性的库）；`AILAB_TEST_POSTGRES_URL` 指向另一个一次性库则额外跑迁移测试。
+
+## 用量账本
+
+每次模型调用记录 token 数、**其中被上游缓存命中的部分**、以及**调用当时**模型的倍率。额度按
+`(未命中缓存的输入 + 命中缓存的输入 × 0.1 + 输出) × 记录时的倍率` 累计（`AILAB_CACHED_TOKEN_WEIGHT`）。
+之后改 `models.toml` 里的倍率只影响新的调用，不会改写历史；升级到 0002 时，旧记录按它们此前实际被计的倍率冻结。
+
 ## 依赖锁定、格式与 CI
 
 - **依赖锁定**：`pyproject.toml` 只写版本下限，实际安装的版本固定在 `platform/constraints.txt`（所有直接和间接依赖）。
@@ -293,7 +314,7 @@ cd ailab-lite/platform
 
 覆盖率门槛 70%（`pyproject.toml` 的 `[tool.coverage.report]`）；lint 规则同样在 `pyproject.toml`
 （`E/F/I/UP/RUF`，FastAPI 的 `Depends()` 默认参数是框架约定，不按 B008 报错）。
-`.github/workflows/ci.yml` 在每次 push/PR 上跑 Python 测试（带 Redis service，跑真实 Streams 分支）+ 覆盖率 + ruff、Portal 的
+`.github/workflows/ci.yml` 在 PR 和 main 的 push 上跑 Python 测试（带 Redis service，跑真实 Streams 分支；再在 PostgreSQL 16 上整套重跑一遍并跑迁移测试）+ 覆盖率 + ruff、Portal 的
 `npm ci && npm run build`，以及 `shellcheck`（`deploy.sh`、`tests/*.sh`、`platform/scripts/*.sh`）。
 
 覆盖：健康检查、鉴权、Run 生命周期/取消、事件历史、内部服务令牌、文件上传下载、
@@ -317,12 +338,12 @@ platform/
 1. **T2 收口**：把 OpenSandbox dev server 换成 k8s controller + ingress-gateway + gVisor，
    加每沙箱令牌/Secure Access；Broker 只改 `AILAB_SANDBOX_PROVIDER=opensandbox` 与 `AILAB_OSB_DOMAIN`。
 2. **T3**：部署 Higress + GPUStack，在 `models.toml` 里加指向 Higress 的模型（别名 = 网关路由），保留 `ailab-demo`（mock）做离线回归。
-   上线前验证：思考模型是否需要 `AILAB_LLM_ECHO_REASONING`；prompt cache 命中的 token 记账（`ModelUsage` 暂无 cached 字段）；
+   上线前验证：思考模型是否需要 `AILAB_LLM_ECHO_REASONING`；思考模型和 prompt cache 的实际返回格式（缓存命中数已按 DeepSeek 与 OpenAI/vLLM 两种字段解析并记账）；
    按用户限流依赖网关收到 `x-user-id`（Agent 已带）。模型级访问控制（谁能用哪个模型）目前没有，目录对所有登录用户一视同仁。
 3. **T4**：`AILAB_DATABASE_URL=postgresql+psycopg://...`、`AILAB_STORAGE_BACKEND=s3`，
-   开启 presign 上传；换 PostgreSQL 时一并加 Alembic 迁移（SQLite 的 `create_all` 不会改已有表）。
+   开启 presign 上传。数据库迁移（Alembic）已就绪并在 PostgreSQL 16 上验证：整套测试和迁移测试都在 PG 上跑过，换库只改连接串。
 4. **Keycloak**：Platform API 加 OIDC 校验，去掉 dev token；给各服务分别签发令牌（现在共用一个）。
-5. **多副本前**：reaper 选主；`/internal` 拆独立端口或 NetworkPolicy。
+5. **多副本前**：`/internal` 拆独立端口或 NetworkPolicy（reaper 已有锁，迁移在 PG 上有咨询锁）。
 
 ## 已知限制
 

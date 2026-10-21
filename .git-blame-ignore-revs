@@ -1,0 +1,3 @@
+# Formatting-only commits: `git blame` (and GitHub) skip these.
+# style: ruff format (no functional change)
+fa244839d740184f49c1b36527563c76011c9470

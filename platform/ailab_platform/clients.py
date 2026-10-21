@@ -65,8 +65,13 @@ class _PlatformApi(_Service):
     def _append_event(self, run_id, type_, payload=None) -> Request:
         return self._req("POST", f"/internal/runs/{run_id}/events", json={"type": type_, "payload": payload or {}})
 
-    def _record_usage(self, run_id, model, prompt_tokens, completion_tokens) -> Request:
-        body = {"model": model, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
+    def _record_usage(self, run_id, model, prompt_tokens, completion_tokens, cached_tokens=0) -> Request:
+        body = {
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cached_tokens": cached_tokens,
+        }
         return self._req("POST", f"/internal/runs/{run_id}/usage", json=body)
 
     def _commit_artifact(self, payload) -> Request:
@@ -100,8 +105,8 @@ class PlatformClient(_PlatformApi):
     def append_event(self, run_id: str, type_: str, payload: dict | None = None) -> dict:
         return self._send(self._append_event(run_id, type_, payload)).json()
 
-    def record_usage(self, run_id: str, model: str, prompt_tokens: int, completion_tokens: int) -> None:
-        self._send(self._record_usage(run_id, model, prompt_tokens, completion_tokens))
+    def record_usage(self, run_id: str, model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> None:
+        self._send(self._record_usage(run_id, model, prompt_tokens, completion_tokens, cached_tokens))
 
     def commit_artifact(self, payload: dict) -> dict:
         return self._send(self._commit_artifact(payload)).json()
@@ -134,8 +139,8 @@ class AsyncPlatformClient(_PlatformApi):
     async def append_event(self, run_id: str, type_: str, payload: dict | None = None) -> dict:
         return (await self._send(self._append_event(run_id, type_, payload))).json()
 
-    async def record_usage(self, run_id: str, model: str, prompt_tokens: int, completion_tokens: int) -> None:
-        await self._send(self._record_usage(run_id, model, prompt_tokens, completion_tokens))
+    async def record_usage(self, run_id: str, model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> None:
+        await self._send(self._record_usage(run_id, model, prompt_tokens, completion_tokens, cached_tokens))
 
 
 class AsyncBrokerClient(_Service):

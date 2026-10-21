@@ -178,6 +178,7 @@ class AgentLoop:
                             model,
                             response.usage.get("prompt_tokens", 0),
                             response.usage.get("completion_tokens", 0),
+                            response.usage.get("cached_tokens", 0),
                         )
                     except Exception:
                         log.warning("usage record failed run=%s", run_id, exc_info=True)

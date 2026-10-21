@@ -134,10 +134,22 @@ class OpenAICompatibleClient(LLMClient):
             usage={
                 "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage.get("completion_tokens") or 0),
+                "cached_tokens": _cached_tokens(usage),
             },
             finish_reason=finish_reason,
             reasoning_content=message.get("reasoning_content") or "",
         )
+
+
+def _cached_tokens(usage: dict) -> int:
+    """Prompt tokens served from the upstream's cache, whichever way it reports them."""
+    cached = usage.get("prompt_cache_hit_tokens")
+    if cached is None:
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+    try:
+        return max(0, int(cached or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _assistant_steps(messages: list[dict]) -> int:

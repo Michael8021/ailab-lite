@@ -146,8 +146,9 @@ class EventIn(BaseModel):
 
 class UsageIn(BaseModel):
     model: str = ""
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    cached_tokens: int = Field(default=0, ge=0)
 
 
 class ArtifactIn(BaseModel):

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -148,4 +149,9 @@ class ModelUsage(Base):
     model: Mapped[str] = mapped_column(String(120), default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Part of prompt_tokens that the upstream served from its prompt cache (billed far lower).
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # The model's quota weight *when the call was recorded*. Changing a weight in models.toml later
+    # must not rewrite what past calls cost.
+    weight: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -10,7 +10,8 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import settings
-from .models import ApiToken, Base, User, new_id, utcnow
+from .migrate import run_migrations
+from .models import ApiToken, User, new_id, utcnow
 
 _is_sqlite = settings.database_url.startswith("sqlite")
 
@@ -41,7 +42,7 @@ def hash_token(token: str) -> str:
 
 def init_db() -> None:
     settings.ensure_dirs()
-    Base.metadata.create_all(engine)
+    run_migrations(engine)
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == settings.dev_user_email))
         if user is None:
