@@ -40,7 +40,7 @@ jobs:
       # Exercise the real RedisQueue branch (the default run skips it).
       AILAB_TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -67,7 +67,7 @@ jobs:
       run:
         working-directory: platform/portal
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -79,7 +79,7 @@ jobs:
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: ShellCheck
