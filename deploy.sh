@@ -203,9 +203,18 @@ start_portal() {
   [ "$WITH_PORTAL" = 1 ] || { step "Portal"; ok "skipped (--no-portal)"; return; }
   step "Portal (Next.js, port $PORTAL_PORT, bound to $LISTEN)"
   cd "$PLATFORM/portal"
-  [ -d node_modules ] || run npm ci --no-audit --no-fund >/dev/null
   local pid; pid=$(portal_pid || true)
   if [ -n "$pid" ]; then run kill "$pid"; [ "$DRY" = 1 ] || { for _ in $(seq 20); do [ -z "$(portal_pid || true)" ] && break; sleep 0.5; done; }; ok "stopped the previous Portal (pid $pid)"; fi
+  # Reinstall whenever package-lock.json changed since the last install: after a dependency upgrade
+  # (e.g. a Next.js major) building against the old node_modules would silently test and ship the old version.
+  local lock_sum; lock_sum=$(sha256sum package-lock.json | cut -d' ' -f1)
+  if [ ! -d node_modules ] || [ "$(cat node_modules/.ailab-lock-sha256 2>/dev/null)" != "$lock_sum" ]; then
+    run npm ci --no-audit --no-fund >/dev/null
+    [ "$DRY" = 1 ] || echo "$lock_sum" > node_modules/.ailab-lock-sha256
+    ok "installed Portal dependencies from package-lock.json"
+  else
+    ok "Portal dependencies match package-lock.json"
+  fi
   # a dev server and a production build share .next, so the old process had to go first
   run nice -n 19 npm run build >/dev/null
   mkdir -p "$PLATFORM/var/log" "$PLATFORM/var/run"

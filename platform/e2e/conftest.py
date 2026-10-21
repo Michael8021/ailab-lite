@@ -71,8 +71,12 @@ def _build_portal(workdir: Path) -> Path:
         raise RuntimeError("platform/portal/node_modules is missing: run `npm ci` there first")
     dst = workdir / "portal"
     dst.mkdir()
-    for name in ("app", "lib", "middleware.ts", "next.config.mjs", "tsconfig.json", "package.json", "package-lock.json", "next-env.d.ts"):
+    # "middleware.ts" was renamed "proxy.ts" in Next 16; copy whichever exists
+    names = ("app", "lib", "middleware.ts", "proxy.ts", "next.config.mjs", "tsconfig.json")
+    for name in (*names, "package.json", "package-lock.json", "next-env.d.ts"):
         src = PORTAL_SRC / name
+        if not src.exists():
+            continue
         if src.is_dir():
             shutil.copytree(src, dst / name)
         else:
