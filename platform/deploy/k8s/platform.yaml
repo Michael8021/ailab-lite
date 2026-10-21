@@ -19,6 +19,7 @@ metadata:
   namespace: platform
 data:
   AILAB_ENV: k3s
+  AILAB_ADMIN_USERNAME: admin  # the first Portal account; its password is AILAB_ADMIN_PASSWORD in platform-secrets
   AILAB_REDIS_URL: redis://platform-redis:6379/0
   AILAB_DATABASE_URL: sqlite:////data/platform.db
   AILAB_STORAGE_ROOT: /data/storage

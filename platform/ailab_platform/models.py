@@ -57,6 +57,10 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("usr"))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120), default="")
+    # Password login. A user without them can only be reached with an API token.
+    username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     tokens: Mapped[list[ApiToken]] = relationship(back_populates="user")
@@ -71,6 +75,7 @@ class ApiToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # None: never (API tokens)
 
     user: Mapped[User] = relationship(back_populates="tokens")
 

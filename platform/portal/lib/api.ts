@@ -10,6 +10,8 @@ export function redirectIfUnauthorized(resp: Response): void {
   }
 }
 
+export type Me = { id: string; username: string | null; display_name: string; email: string };
+
 export type Run = {
   id: string;
   title: string;
@@ -84,12 +86,6 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function downloadUrl(path: string): string {
   return `${API_BASE}${path}`; // same-origin: the session cookie authorizes the download
-}
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export async function streamRun(

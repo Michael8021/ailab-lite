@@ -28,6 +28,16 @@ class ArtifactOut(ORMModel):
     download_url: str = ""
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)  # the length policy is applied when a password is *set*
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
 class RunCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     title: str | None = Field(default=None, max_length=200)

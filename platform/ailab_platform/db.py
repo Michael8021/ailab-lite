@@ -65,6 +65,9 @@ def init_db() -> None:
             select(ApiToken).where(ApiToken.name == "dev", ApiToken.token_hash != token_hash, ApiToken.revoked_at.is_(None))
         ):
             stale.revoked_at = utcnow()
+        from .accounts import ensure_bootstrap_admin  # accounts imports this module for hash_token
+
+        ensure_bootstrap_admin(db)
         db.commit()
 
 

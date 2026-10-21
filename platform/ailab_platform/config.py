@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     dev_token: str = "dev-demo-token"
     dev_user_email: str = "demo@ailab.local"
     service_token: str = "dev-service-token"
+    # Password login. The first account is created from these at startup (if absent); more with
+    # `python -m ailab_platform.users add`.
+    admin_username: str = ""
+    admin_password: str = ""
+    session_ttl_seconds: int = 8 * 60 * 60
+    login_max_failures: int = 5  # per username and per client address ...
+    login_window_seconds: int = 300  # ... within this many seconds
 
     # Models: which ones exist, how each is reached and which key it uses is the catalog's business
     # (models.toml, see catalog.py). Nothing here names a model or holds a key.

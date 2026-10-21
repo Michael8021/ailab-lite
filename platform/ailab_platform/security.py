@@ -1,16 +1,16 @@
-"""Token authentication primitives."""
+"""Token authentication primitives (session tokens from a password login, and API tokens)."""
 
 from __future__ import annotations
 
 import hmac
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import hash_token
-from .models import ApiToken, User
+from .models import ApiToken, User, utcnow
 
 
 def bearer_token(request: Request) -> str | None:
@@ -32,11 +32,13 @@ def authenticate(db: Session, token: str | None) -> User | None:
         select(ApiToken).where(
             ApiToken.token_hash == hash_token(token),
             ApiToken.revoked_at.is_(None),
+            or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > utcnow()),
         )
     )
     if row is None:
         return None
-    return db.get(User, row.user_id)
+    user = db.get(User, row.user_id)
+    return None if user is None or user.disabled_at is not None else user
 
 
 def service_token_ok(token: str | None) -> bool:

@@ -6,7 +6,7 @@
 #   ./deploy.sh down [--yes]          remove the platform from k3s (and stop the Portal)
 #
 # Options (for `up`):
-#   --model-key KEY    API key for the "AILab 旗舰" model (DeepSeek). Also read from $AILAB_KEY_DEEPSEEK or
+#   --model-key KEY    API key for the "DeepSeek V4.1 Flash" model. Also read from $AILAB_KEY_DEEPSEEK or
 #                      platform/.env. Without a key only the offline demo model is selectable.
 #   --skip-build       reuse the images already built/imported (config-only redeploy)
 #   --no-portal        do not build/start the Portal (needs node/npm otherwise)
@@ -15,7 +15,7 @@
 #   --dry-run          print what would be done, change nothing
 #   -h, --help
 #
-# Safe to run repeatedly. It never prints a model key; the login token is printed once at the end.
+# Safe to run repeatedly. It never prints a model key; the admin password is printed once at the end.
 # Prerequisites it checks for you: docker, k3s (or kubectl + a kubeconfig), curl, openssl, python3, root.
 set -euo pipefail
 
@@ -65,6 +65,7 @@ trap 'rc=$?; [ -z "$JAR" ] || rm -f "$JAR"; [ $rc -eq 0 ] || echo "${R}deploy st
 
 k() { $KUBECTL -n "$NS" "$@"; }
 dev_token() { k get secret platform-secrets -o jsonpath='{.data.AILAB_DEV_TOKEN}' | base64 -d; }
+admin_password() { k get secret platform-secrets -o jsonpath='{.data.AILAB_ADMIN_PASSWORD}' 2>/dev/null | base64 -d; }
 
 wait_http() {  # url, seconds, label
   local url=$1 secs=$2 label=$3 i
@@ -176,6 +177,10 @@ deploy_platform() {
     else AILAB_KEY_DEEPSEEK=$MODEL_KEY bash "$PLATFORM/scripts/k8s_secrets.sh" >/dev/null; ok "created with random tokens"; fi
   else
     ok "exists (tokens kept)"
+    # secrets made before password login existed have no admin password yet
+    if [ "$DRY" != 1 ] && [ -z "$(admin_password)" ]; then
+      k patch secret platform-secrets --type merge -p "{\"data\":{\"AILAB_ADMIN_PASSWORD\":\"$(printf %s "$(openssl rand -hex 10)" | base64 -w0)\"}}" >/dev/null; ok "admin password generated"
+    fi
     if [ -n "$MODEL_KEY" ] && [ "$DRY" != 1 ]; then
       local have want; have=$(k get secret platform-secrets -o jsonpath='{.data.AILAB_KEY_DEEPSEEK}' 2>/dev/null || true); want=$(printf %s "$MODEL_KEY" | base64 -w0)
       if [ "$have" != "$want" ]; then k patch secret platform-secrets --type merge -p "{\"data\":{\"AILAB_KEY_DEEPSEEK\":\"$want\"}}" >/dev/null; ok "model key updated"; fi
@@ -223,7 +228,7 @@ start_portal() {
   wait_http "http://127.0.0.1:$PORTAL_PORT/login" 60 "Portal" || { tail -20 "$PLATFORM/var/log/portal.log"; die "Portal did not start"; }
   portal_pid > "$PLATFORM/var/run/portal.pid" || true
   cd "$ROOT"
-  [ "$LISTEN" = 127.0.0.1 ] || warn "the Portal listens on $LISTEN over plain HTTP: the session cookie and token travel unencrypted; put TLS in front before real use"
+  [ "$LISTEN" = 127.0.0.1 ] || warn "the Portal listens on $LISTEN over plain HTTP: the password and session cookie travel unencrypted; put TLS in front before real use"
 }
 
 smoke_test() {
@@ -235,7 +240,8 @@ smoke_test() {
   if [ "$WITH_PORTAL" = 1 ]; then
     local p=http://127.0.0.1:$PORTAL_PORT
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$p/api/v1/runs")" = 401 ] && ok "Portal API proxy refuses anonymous requests" || die "Portal proxy is open to anonymous requests"
-    curl -fsS -c "$JAR" -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$tok\"}" "$p/api/auth/login" >/dev/null || die "login through the Portal failed"
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$tok\"}" "$p/api/auth/login")" = 401 ] && ok "the API token is not accepted as a password" || die "the API token works as a Portal password"
+    curl -fsS -c "$JAR" -X POST -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$(admin_password)\"}" "$p/api/auth/login" >/dev/null || die "login through the Portal failed"
     grep -q HttpOnly "$JAR" && ok "login works; session cookie is httpOnly" || die "session cookie is not httpOnly"
     curl -fsS -b "$JAR" "$p/api/v1/models" | grep -q '"models"' && ok "models are listed through the Portal proxy" || die "models not reachable through the Portal"
   fi
@@ -254,18 +260,20 @@ smoke_test() {
   }
   case " $models " in *" ailab-demo "*) smoke_run ailab-demo "你好，在沙箱里执行一条命令" 120 ;; esac
   if [ "$SMOKE_REAL" = 1 ]; then
-    case " $models " in *" ailab-agent-pro "*) smoke_run ailab-agent-pro "在沙箱里执行 echo deploy-ok，然后一句话告诉我输出" 240 ;; *) warn "flagship model unavailable (no key): skipping the real-model task" ;; esac
+    case " $models " in *" deepseek-v4.1-flash "*) smoke_run deepseek-v4.1-flash "在沙箱里执行 echo deploy-ok，然后一句话告诉我输出" 240 ;; *) warn "flagship model unavailable (no key): skipping the real-model task" ;; esac
   fi
 }
 
 summary() {
-  local tok; tok=$(dev_token 2>/dev/null || echo "<see below>")
+  local pw; pw=$(admin_password 2>/dev/null || echo "<see below>")
   echo
   echo "${G}${B}AILab lite is up.${N}"
-  [ "$WITH_PORTAL" = 1 ] && echo "  Portal        http://$([ "$LISTEN" = 0.0.0.0 ] && hostname -I | awk '{print $1}' || echo "$LISTEN"):$PORTAL_PORT   (log in with the token below)"
+  [ "$WITH_PORTAL" = 1 ] && echo "  Portal        http://$([ "$LISTEN" = 0.0.0.0 ] && hostname -I | awk '{print $1}' || echo "$LISTEN"):$PORTAL_PORT   (log in with the account below)"
   echo "  API / docs    $API_URL/docs"
-  echo "  login token   $tok"
-  echo "                (again later:  $KUBECTL -n $NS get secret platform-secrets -o jsonpath='{.data.AILAB_DEV_TOKEN}' | base64 -d)"
+  echo "  login         user  admin"
+  echo "                pass  $pw"
+  echo "                (again later:  $KUBECTL -n $NS get secret platform-secrets -o jsonpath='{.data.AILAB_ADMIN_PASSWORD}' | base64 -d)"
+  echo "  more users    $KUBECTL -n $NS exec -it deploy/platform-api -- python -m ailab_platform.users add NAME"
   [ -n "$MODEL_KEY" ] || echo "  ${Y}no model key: add one with  ./deploy.sh --skip-build --no-portal --model-key sk-...${N}"
   echo
   echo "  status:    ./deploy.sh status        remove:  ./deploy.sh down"

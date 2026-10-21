@@ -25,7 +25,7 @@ sudo ./deploy.sh --model-key sk-xxxxxxxx     # 不带 --model-key 也行：先�
 ./deploy.sh --help
 ```
 
-打开 http://127.0.0.1:3000，粘贴打印出来的令牌登录，在工作台选模型、提交任务（如"帮我做一个 PPT，介绍…"）。
+打开 http://127.0.0.1:3000，用打印出来的账号（用户名 `admin` + 随机密码）登录，在工作台选模型、提交任务（如"帮我做一个 PPT，介绍…"）。
 Portal 默认只监听本机，从自己电脑看用 `ssh -L 3000:127.0.0.1:3000 <机器>`；`--listen 0.0.0.0` 会在网络上暴露
 一个 HTTP 登录页，仅限可信网络。k3s 本身的安装见 `tests/t0_base.sh`，平台的详细说明见 [platform/README.md](platform/README.md)。
 

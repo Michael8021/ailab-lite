@@ -67,8 +67,26 @@ bash scripts/status.sh          # 健康检查
 | Worker | http://127.0.0.1:8083/healthz |
 | Portal | http://127.0.0.1:3000 |
 
-Dev token：`dev-demo-token`；服务令牌：`dev-service-token`（见 `.env.example`）。
+Portal 账号：`.env` 里的 `AILAB_ADMIN_USERNAME` / `AILAB_ADMIN_PASSWORD`（见 `.env.example`，首次启动时创建）；
+API 令牌 `dev-demo-token`（脚本用）、服务令牌 `dev-service-token`（见 `.env.example`）。
 `scripts/dev_down.sh` 停止全部进程并清理带 `ailab.lease` 标签的沙箱容器。
+
+## 账号
+
+Portal 用账号密码登录。第一个账号在 API 启动时由 `AILAB_ADMIN_USERNAME` / `AILAB_ADMIN_PASSWORD` 创建（已存在则不动，
+之后改环境变量不会覆盖已改过的密码）；k3s 里用户名是 `admin`，密码是 Secret `platform-secrets` 里随机生成的 `AILAB_ADMIN_PASSWORD`。
+其余账号用命令行管理（没有网页注册，也没有自助找回密码）：
+
+```bash
+python -m ailab_platform.users add alice        # 交互输入密码；--password-stdin 可从标准输入读
+python -m ailab_platform.users passwd alice     # 同时让 alice 的所有会话失效
+python -m ailab_platform.users disable alice    # 禁用 / enable 恢复
+python -m ailab_platform.users list
+# k3s：kubectl -n platform exec -it deploy/platform-api -- python -m ailab_platform.users add alice
+```
+
+用户名 3–64 位小写字母、数字和 `. _ -`，密码至少 8 个字符。登录后可在「账号设置」页自己改密码（改完所有设备要重新登录）。
+API：`POST /v1/auth/login`、`GET /v1/auth/me`、`POST /v1/auth/logout`、`POST /v1/auth/password`。
 
 ## 模型目录（用户选模型，不接触 Key）
 
@@ -76,14 +94,14 @@ Dev token：`dev-demo-token`；服务令牌：`dev-service-token`（见 `.env.ex
 
 ```toml
 [[models]]
-id = "ailab-agent-pro"            # 用户选的、Run 和计量里记录的名字
-name = "AILab 旗舰"                # 界面显示名
-description = "复杂任务与工具调用，质量优先。"
+id = "deepseek-v4.1-flash"       # 用户选的、Run 和计量里记录的名字
+name = "DeepSeek V4.1 Flash"      # 界面显示名
+description = "速度快、成本低，适合日常任务与工具调用。"
 provider = "openai"               # openai = 任何 OpenAI 兼容接口（DeepSeek / Higress / vLLM…）| mock
 base_url = "https://api.deepseek.com"   # 上游在哪（只在服务端）
-upstream_model = "deepseek-chat"        # 上游怎么称呼它
+upstream_model = "deepseek-flash"       # 上游怎么称呼它
 api_key_env = "AILAB_KEY_DEEPSEEK"      # Key 在哪个环境变量里；文件里永远没有 Key 本身
-weight = 3                        # 计量倍率：一次调用消耗 token × weight 的额度
+weight = 1                        # 计量倍率：一次调用消耗 token × weight 的额度
 default = true
 ```
 
@@ -96,7 +114,7 @@ default = true
 - 每次 Run 走所选模型自己的上游；Run 创建后模型从目录里消失，Agent 会直接把它标为失败（不占沙箱）。
 - 仍保留的通用配置：`AILAB_LLM_MAX_RETRIES`（429/5xx/网络错误重试，默认 2 次，退避 1s、2s…）、
   `AILAB_LLM_TIMEOUT_SECONDS`；`finish_reason=length` 视为失败；工具参数不是合法 JSON 时不执行工具、把原文和错误回给模型重试。
-- DeepSeek 思考模型是否需要回传 `reasoning_content` 因版本而异，用 `AILAB_LLM_ECHO_REASONING` 开关（默认关）；接思考模型后按报错决定。
+- DeepSeek V4.x 是思考模型：带工具的多轮对话里必须把上一轮的 `reasoning_content` 原样回传，否则上游返回 400。目录里用 `echo_reasoning = true` 按模型打开（实测 `deepseek-flash` 需要）；`AILAB_LLM_ECHO_REASONING` 是对所有模型的全局开关。
 
 本机开发：`models.toml` 随仓库，Key 写在 `platform/.env` 的 `AILAB_KEY_DEEPSEEK=`。
 k3s：`bash scripts/k8s_models.sh` 把目录发布成 ConfigMap `platform-models`（改目录不用重建镜像，会重启 api 和 agent），
@@ -108,9 +126,9 @@ Key 由 `AILAB_KEY_DEEPSEEK=sk-... bash scripts/k8s_secrets.sh` 写进 Secret。
 |---|---|
 | Portal | http://127.0.0.1:3000 （工作台 / 任务详情时间线 / 资料库）；远程看用 `ssh -L 3000:127.0.0.1:3000 <host>` |
 | Platform API | http://127.0.0.1:30080/docs （Bearer 令牌见下） |
-| 登录令牌 | `eval "$(bash scripts/k8s_secrets.sh env)" && echo $AILAB_DEV_TOKEN`，在 Portal 登录页粘贴（Cookie 保存，页面脚本读不到） |
+| 登录账号 | 用户名 `admin`，密码 `eval "$(bash scripts/k8s_secrets.sh env)" && echo $AILAB_ADMIN_PASSWORD`（登录后会话令牌在 httpOnly Cookie 里，页面脚本读不到） |
 
-当前配置：两个模型可选（AILab 旗舰 = DeepSeek 上游，离线演示 = mock），沙箱 OpenSandbox dev server（Docker runtime，无网络）。
+当前配置：两个模型可选（DeepSeek V4.1 Flash = DeepSeek 官方 API 的 `deepseek-flash`，离线演示 = mock），沙箱 OpenSandbox dev server（Docker runtime，无网络）。
 Portal 顶部横幅来自 `GET /v1/info`，显示的就是实际运行的模型和沙箱。
 
 文档 → PPT 的完整演示（上传 → 隔离扫描 → Worker 解析 → Agent 在沙箱里读文件、生成并自检 PPT → 交付 → 下载）：
@@ -183,13 +201,13 @@ bash scripts/osb_up.sh
 # 脚本会自动找 kubeconfig（$KUBECONFIG、~/.kube/config、/etc/rancher/k3s/k3s.yaml）
 AILAB_KEY_DEEPSEEK=sk-... bash scripts/k8s_secrets.sh   # 随机令牌 + 模型 Key；已存在则不动
 NO_RESTART=1 bash scripts/k8s_models.sh               # 模型目录 → ConfigMap
-eval "$(bash scripts/k8s_secrets.sh env)"   # 之后的 e2e / Portal 用这两个令牌
+eval "$(bash scripts/k8s_secrets.sh env)"   # 之后的 e2e 脚本用 API 令牌，登录 Portal 用 $AILAB_ADMIN_PASSWORD
 k3s kubectl apply -f deploy/k8s/platform.yaml
 k3s kubectl -n platform rollout status deploy/platform-api --timeout=180s
 bash scripts/k8s_status.sh
 
 # 4) Portal 指向 NodePort
-AILAB_API_BASE=http://127.0.0.1:30080 bash scripts/portal.sh   # 打开后在登录页粘贴 $AILAB_DEV_TOKEN
+AILAB_API_BASE=http://127.0.0.1:30080 bash scripts/portal.sh   # 登录：admin / $AILAB_ADMIN_PASSWORD
 
 # 5) 端到端
 AILAB_API_BASE_URL=http://127.0.0.1:30080 .venv/bin/python scripts/e2e_demo.py   # 用的是 $AILAB_DEV_TOKEN
@@ -250,12 +268,16 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
   k3s 的令牌由 `scripts/k8s_secrets.sh` 随机生成，不写进清单。
 - **令牌**：内部路由强制 `X-Service-Token`（目前所有服务共用一个）；用户 token 只存 sha256；API 只认
   `Authorization: Bearer` 头，**不接受 URL 里的 `?token=`**（会进浏览器历史和访问日志）。
-- **Portal 不持有令牌**：浏览器只访问 Portal 自己的 `/api/v1/*` 同源代理（只转发 `/v1/*`，`/internal/*` 不可达）；
-  用户在登录页粘贴一次令牌，服务端先向 API 校验，再写入 httpOnly、SameSite=Strict 的 Cookie，由代理在服务端加成
-  `Authorization` 头。前端代码、页面源码、下载链接里都没有令牌；写操作还校验同源（`Sec-Fetch-Site`/`Origin`）。
-  API 默认关闭 CORS。
+- **账号密码登录**：用户在 Portal 登录页输入用户名和密码，Portal 服务端调用 `POST /v1/auth/login`，API 校验后签发**会话令牌**
+  （随机、只存 sha256、默认 8 小时过期，退出登录或改密码即作废），Portal 把它写进 httpOnly、SameSite=Strict 的 Cookie。
+  密码用标准库 scrypt 加盐哈希（`passwords.py`）；用户名不存在和密码错误返回同样的错误、耗时也相近；
+  同一用户名 5 次失败（或同一来源 20 次失败）后 5 分钟内拒绝登录（429，进程内计数，多副本时每个副本各算各的）。
+  静态 `AILAB_DEV_TOKEN` 仍是 API 令牌（脚本用），**不能**当 Portal 密码。
+- **Portal 不持有令牌**：浏览器只访问 Portal 自己的 `/api/v1/*` 同源代理（只转发 `/v1/*`，`/internal/*` 不可达），
+  由代理在服务端把 Cookie 里的会话令牌加成 `Authorization` 头。前端代码、页面源码、下载链接里都没有令牌或密码；
+  写操作还校验同源（`Sec-Fetch-Site`/`Origin`）。API 默认关闭 CORS。
 - 仍需注意：内部路由（`/internal/*`）和公开路由在同一个端口；Broker 在 k3s 里用 `hostNetwork` 监听宿主所有网卡。
-  两者的唯一防线是服务令牌，所以必须用随机值，并且不要把这些端口暴露到不可信网络。Portal 内置 dev token 只用于本机。
+  两者的唯一防线是服务令牌，所以必须用随机值，并且不要把这些端口暴露到不可信网络。API 令牌 `dev-demo-token` 只用于本机。
 
 ## 与架构图的对应关系
 
@@ -271,7 +293,7 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 | SeaweedFS S3 | 本地目录 | T4 换 S3（`AILAB_STORAGE_BACKEND=s3`） |
 | Higress / GPUStack / DeepSeek | 模型目录 `models.toml`（DeepSeek 官方 API + mock） | T3：加一条指向 Higress 的 `[[models]]` |
 | OpenSandbox + gVisor | OpenSandbox dev server（Docker/runc） | ✅ API 链路；k8s 控制面 + gVisor 待 T2 |
-| Keycloak | 静态 dev token | 后续接 OIDC |
+| Keycloak | 自带账号密码（`users` 表 + 会话令牌），静态 API 令牌给脚本 | 后续接 OIDC |
 
 ## 可观测性
 
@@ -398,7 +420,7 @@ platform/
    按用户限流依赖网关收到 `x-user-id`（Agent 已带）。模型级访问控制（谁能用哪个模型）目前没有，目录对所有登录用户一视同仁。
 3. **T4**：`AILAB_DATABASE_URL=postgresql+psycopg://...`、`AILAB_STORAGE_BACKEND=s3`，
    开启 presign 上传。数据库迁移（Alembic）已就绪并在 PostgreSQL 16 上验证：整套测试和迁移测试都在 PG 上跑过，换库只改连接串。
-4. **Keycloak**：Platform API 加 OIDC 校验，去掉 dev token；给各服务分别签发令牌（现在共用一个）。
+4. **Keycloak**：Platform API 加 OIDC 校验，替换自带的账号密码和静态 API 令牌；给各服务分别签发令牌（现在共用一个）。
 5. **多副本前**：`/internal` 拆独立端口或 NetworkPolicy（reaper 已有锁，迁移在 PG 上有咨询锁）。
 
 ## 已知限制
