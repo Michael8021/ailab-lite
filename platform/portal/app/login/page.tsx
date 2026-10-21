@@ -18,7 +18,7 @@ export default function LoginPage() {
         body: JSON.stringify({ token }),
       });
       if (!resp.ok) throw new Error(resp.status === 401 ? "令牌无效" : `登录失败（${resp.status}）`);
-      // The middleware serves this page at the URL the visitor asked for; go back there.
+      // The proxy (proxy.ts) serves this page at the URL the visitor asked for; go back there.
       const asked = window.location.pathname === "/login" ? new URLSearchParams(window.location.search).get("next") || "/" : window.location.pathname;
       window.location.href = asked.startsWith("/") && !asked.startsWith("//") ? asked : "/";
     } catch (err: any) {

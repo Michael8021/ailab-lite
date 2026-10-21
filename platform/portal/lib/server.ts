@@ -1,4 +1,4 @@
-// Server-side only (route handlers, middleware). Nothing here may be imported by client components:
+// Server-side only (route handlers, proxy.ts). Nothing here may be imported by client components:
 // the access token lives in an httpOnly cookie and must never reach the browser's JavaScript.
 import type { NextRequest } from "next/server";
 
