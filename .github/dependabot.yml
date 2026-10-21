@@ -6,7 +6,22 @@ updates:
     directory: /platform/portal
     schedule: {interval: weekly}
     open-pull-requests-limit: 3
+    groups:
+      portal-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Kept in step with the runtime, not ahead of it: CI and the image run Node 22.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 is the native toolchain; Next does not support it yet. Revisit with the next Next major.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Major framework upgrades are done by hand against the browser tests (platform/e2e), never merged
+      # on a green build alone.
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
     open-pull-requests-limit: 3
+    groups:
+      actions:
+        update-types: [minor, patch]

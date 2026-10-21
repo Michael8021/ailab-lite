@@ -10,3 +10,4 @@ node_modules/
 .coverage
 htmlcov/
 .ruff_cache/
+e2e-logs/

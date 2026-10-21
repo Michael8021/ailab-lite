@@ -12,7 +12,7 @@ python3 -m venv "$tmp/venv"
 "$tmp/venv/bin/pip" install -q uv
 
 compile() {  # output file
-  "$tmp/venv/bin/uv" pip compile pyproject.toml --extra dev --extra opensandbox --extra postgres --python-version 3.12 \
+  "$tmp/venv/bin/uv" pip compile pyproject.toml --extra dev --extra opensandbox --extra postgres --extra e2e --python-version 3.12 \
     --no-header --quiet --output-file "$1" "${@:2}"
 }
 

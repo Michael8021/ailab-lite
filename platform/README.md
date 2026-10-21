@@ -304,6 +304,24 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 - **CI**（`.github/workflows/ci.yml`）：Python（锁文件一致性 + ruff + pytest 带覆盖率门槛，并起 Redis 服务让真实 Streams 测试也跑）、
   Portal 构建、ShellCheck。`audit.yml` 每周对锁定的依赖做已知漏洞扫描（`pip-audit`、`npm audit`）。
 
+## 浏览器 E2E 测试（`platform/e2e/`）
+
+`pytest tests` 只测后端；Portal 的行为靠真实浏览器测试守住（`e2e/test_portal.py`，12 个）：匿名访问只见登录页、
+错误令牌被拒、登录后回到原页面、**令牌不进页面脚本/存储/下载链接/任何 JS 包**（Cookie 为 httpOnly + SameSite=Strict）、
+代理只暴露 `/v1`、跨站写请求被拒、选模型、建任务并看到 SSE 时间线跑到 `run.completed`、下载产出、
+上传先隔离后可下载、感染文件被拒且无法下载、删除、退出。
+
+```bash
+cd ailab-lite/platform && .venv/bin/pip install -c constraints.txt -e '.[dev,e2e]' && .venv/bin/playwright install chromium
+cd portal && npm ci && cd ..
+AILAB_E2E=1 .venv/bin/pytest e2e          # 需要 Redis（默认 127.0.0.1:6379 的 db 15，用完清理）
+```
+
+它会起真实的 API/Broker/Agent/Worker（mock 沙箱和 mock 模型）和 Portal 的生产构建（在临时副本里构建，不动你的 `.next`）。
+已用"故意破坏"验证过测试会报警（Cookie 去掉 httpOnly、关掉同源校验、把令牌打进前端包，各自都会失败）。
+`AILAB_E2E_PORTAL_DIR` 可以指向另一份 Portal 代码（比如依赖大版本升级分支），`PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定浏览器。
+大版本升级（Next、React 等）不要只看构建通过：先跑这套测试。
+
 ## 测试与 CI
 
 ```bash
@@ -315,7 +333,7 @@ cd ailab-lite/platform
 覆盖率门槛 70%（`pyproject.toml` 的 `[tool.coverage.report]`）；lint 规则同样在 `pyproject.toml`
 （`E/F/I/UP/RUF`，FastAPI 的 `Depends()` 默认参数是框架约定，不按 B008 报错）。
 `.github/workflows/ci.yml` 在 PR 和 main 的 push 上跑 Python 测试（带 Redis service，跑真实 Streams 分支；再在 PostgreSQL 16 上整套重跑一遍并跑迁移测试）+ 覆盖率 + ruff、Portal 的
-`npm ci && npm run build`，以及 `shellcheck`（`deploy.sh`、`tests/*.sh`、`platform/scripts/*.sh`）。
+`npm ci && npm run build`，`shellcheck`（`deploy.sh`、`tests/*.sh`、`platform/scripts/*.sh`），以及上面的浏览器 E2E 任务（失败时上传服务日志）。
 
 覆盖：健康检查、鉴权、Run 生命周期/取消、事件历史、内部服务令牌、文件上传下载、
 Worker 文本解析/EICAR、Mock LLM 的 PPT 工具序列、上传隔离（pending→ready/rejected）、

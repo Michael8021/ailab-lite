@@ -31,6 +31,8 @@ et-xmlfile==2.0.0
     # via openpyxl
 fastapi==0.156.4
     # via ailab-platform (pyproject.toml)
+greenlet==3.5.6
+    # via playwright
 h11==0.16.0
     # via
     #   httpcore
@@ -77,6 +79,8 @@ packaging==26.3
     # via pytest
 pillow==13.0.0
     # via python-pptx
+playwright==1.64.0
+    # via ailab-platform (pyproject.toml)
 pluggy==1.7.0
     # via
     #   pytest
@@ -94,6 +98,8 @@ pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.16.1
     # via ailab-platform (pyproject.toml)
+pyee==14.0.0
+    # via playwright
 pygments==2.21.0
     # via pytest
 pypdf==6.21.1
@@ -144,6 +150,7 @@ typing-extensions==4.16.0
     #   pydantic
     #   pydantic-core
     #   pydantic-settings
+    #   pyee
     #   python-docx
     #   python-pptx
     #   sqlalchemy
