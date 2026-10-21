@@ -17,6 +17,7 @@ from ..config import settings
 from ..db import SessionLocal
 from ..deps import current_user, get_db
 from ..events import append_event, list_events
+from ..locks import user_critical_section
 from ..models import FileObject, FileStatus, Run, RunEvent, RunStatus, User
 from ..queue import get_queue
 from ..quota import enforce_token_quota, usage_summary
@@ -59,32 +60,33 @@ def create_run(body: RunCreate, user: User = Depends(current_user), db: Session 
     if spec is None or not spec.available:
         raise HTTPException(status_code=400, detail=f"model not available: {model_id}")
 
-    enforce_token_quota(db, user.id)
+    with user_critical_section(db, user.id):  # the limits are checked and the run written as one step
+        enforce_token_quota(db, user.id)
 
-    active = db.scalar(select(func.count()).select_from(Run).where(Run.user_id == user.id, Run.status.in_(RunStatus.ACTIVE)))
-    if active >= settings.max_active_runs_per_user:
-        metrics.QUOTA_REJECTIONS.labels("active_runs").inc()
-        raise HTTPException(status_code=429, detail="too many active runs for this user")
+        active = db.scalar(select(func.count()).select_from(Run).where(Run.user_id == user.id, Run.status.in_(RunStatus.ACTIVE)))
+        if active >= settings.max_active_runs_per_user:
+            metrics.QUOTA_REJECTIONS.labels("active_runs").inc()
+            raise HTTPException(status_code=429, detail="too many active runs for this user")
 
-    inputs: list[str] = []
-    for file_id in body.file_ids:
-        file = db.get(FileObject, file_id)
-        if file is None or file.user_id != user.id:
-            raise HTTPException(status_code=400, detail=f"unknown file_id: {file_id}")
-        if file.status != FileStatus.READY:
-            raise HTTPException(status_code=409, detail=f"file {file_id} is {file.status}, not usable yet")
-        inputs.append(file.id)
+        inputs: list[str] = []
+        for file_id in body.file_ids:
+            file = db.get(FileObject, file_id)
+            if file is None or file.user_id != user.id:
+                raise HTTPException(status_code=400, detail=f"unknown file_id: {file_id}")
+            if file.status != FileStatus.READY:
+                raise HTTPException(status_code=409, detail=f"file {file_id} is {file.status}, not usable yet")
+            inputs.append(file.id)
 
-    run = Run(
-        user_id=user.id,
-        title=(body.title or body.prompt.strip().splitlines()[0])[:200],
-        prompt=body.prompt,
-        model=model_id,
-        input_file_ids=inputs,
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
+        run = Run(
+            user_id=user.id,
+            title=(body.title or body.prompt.strip().splitlines()[0])[:200],
+            prompt=body.prompt,
+            model=model_id,
+            input_file_ids=inputs,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
 
     append_event(db, run.id, "run.created", {"title": run.title, "status": run.status, "model": run.model})
     try:

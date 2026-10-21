@@ -411,6 +411,6 @@ platform/
 - 病毒扫描是 EICAR 桩；无 OCR，扫描件按架构先跳过。Worker 在自己的进程里解析不可信文档（PDF/Office），
   生产应放进沙箱或独立受限 Pod。
 - 单文件上限默认 50 MB（设计 200 MB），上传和下载都把整个文件读进内存；大文件需要流式 + 预签名直传（T4）。
-- 配额检查与写入不在同一个事务里（并发创建可能略微超限），按 lite 可接受。
+- 配额（并发 Run 数、资料库容量）的“检查 + 写入”在每用户临界区里完成（`locks.py`：进程内锁 + PostgreSQL 上 `SELECT … FOR UPDATE` 用户行），并发请求不会超限；Token 日/月额度是在建 Run 时检查，一个 Run 内部的多次调用仍可能略超（由单 Run Token 上限兜底）。
 - 平台服务跑在宿主机**或** k3s（两种模式互斥）；k3s 里平台沙箱仍走宿主机上的 OpenSandbox dev server。
 - `settings`、数据库 engine 在 import 时创建，所以测试要在 import 前设环境变量（`tests/conftest.py`）。

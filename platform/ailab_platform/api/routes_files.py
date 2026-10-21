@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..deps import current_user, get_db
+from ..locks import user_critical_section
 from ..models import Artifact, FileObject, FileStatus, User, new_id
 from ..queue import get_queue
 from ..quota import enforce_library_quota
@@ -64,34 +65,35 @@ async def upload_file(
     data = bytes(buf)
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
-    enforce_library_quota(db, user.id, len(data))
+    with user_critical_section(db, user.id):  # quota check and the file row are one step
+        enforce_library_quota(db, user.id, len(data))
 
-    filename = safe_filename(upload.filename or "file")
-    content_type = upload.content_type or "application/octet-stream"
-    version = 1
-    if parent_id:
-        parent = _owned_file(db, parent_id, user)
-        version = parent.version + 1
+        filename = safe_filename(upload.filename or "file")
+        content_type = upload.content_type or "application/octet-stream"
+        version = 1
+        if parent_id:
+            parent = _owned_file(db, parent_id, user)
+            version = parent.version + 1
 
-    file_id = new_id("fil")
-    key = f"uploads/{user.id}/{file_id}/{filename}"
-    get_storage().put_bytes(key, data, content_type)
-    file = FileObject(
-        id=file_id,
-        user_id=user.id,
-        filename=filename,
-        content_type=content_type,
-        size=len(data),
-        sha256=hashlib.sha256(data).hexdigest(),
-        storage_key=key,
-        status=FileStatus.PENDING,
-        version=version,
-        parent_id=parent_id,
-        meta={"processing": "queued"},
-    )
-    db.add(file)
-    db.commit()
-    db.refresh(file)
+        file_id = new_id("fil")
+        key = f"uploads/{user.id}/{file_id}/{filename}"
+        get_storage().put_bytes(key, data, content_type)
+        file = FileObject(
+            id=file_id,
+            user_id=user.id,
+            filename=filename,
+            content_type=content_type,
+            size=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+            storage_key=key,
+            status=FileStatus.PENDING,
+            version=version,
+            parent_id=parent_id,
+            meta={"processing": "queued"},
+        )
+        db.add(file)
+        db.commit()
+        db.refresh(file)
 
     try:
         get_queue().enqueue(settings.file_queue, {"file_id": file.id})
