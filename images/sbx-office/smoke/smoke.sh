@@ -7,20 +7,27 @@ python -c "import pptx, docx, openpyxl, matplotlib, pandas, pypdf; print('py lib
 fc-match "微软雅黑" | grep -q "Noto Sans CJK" || { echo "font map FAILED"; exit 1; }
 echo "font map OK"
 
-cat > /workspace/outline.json <<'EOF'
-{"title": "AILab 简易版冒烟测试", "subtitle": "gVisor 沙箱",
- "slides": [
-  {"title": "第一页：中文排版", "bullets": ["微软雅黑映射到 Noto Sans CJK", "LibreOffice 渲染预览"]},
-  {"title": "第二页：故意溢出", "bullets": ["这是一条非常非常长的要点，用来测试溢出检查是否能够发现文字超出文本框的情况，重复一遍：这是一条非常非常长的要点，用来测试溢出检查是否能够发现文字超出文本框的情况", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"]}
- ]}
-EOF
-python /opt/skills/pptx-builder/scripts/build.py /workspace/outline.json /workspace/outputs/smoke.pptx
+mkdir -p /workspace/work
+python /opt/skills/pptx/scripts/build.py --example > /workspace/work/deck.json
+python - <<'PY'
+import json
+spec = json.load(open("/workspace/work/deck.json"))
+for s in spec["slides"]:
+    s.pop("image", None)  # no network, no pictures in the smoke test
+spec["slides"].append({"layout": "bullets", "title": "故意过长", "bullets": ["这是一条非常非常长的要点，用来测试文字过长时的告警" * 6] * 6})
+json.dump(spec, open("/workspace/work/deck.json", "w"), ensure_ascii=False)
+PY
+python /opt/skills/pptx/scripts/build.py /workspace/work/deck.json /workspace/outputs/smoke.pptx | tee /tmp/build.log
+grep -q "^WARN slide 10" /tmp/build.log || { echo "too-long text was not reported"; exit 1; }
+echo "overflow warning OK"
+python /opt/skills/xlsx/scripts/build_xlsx.py --example > /workspace/work/book.json
+python /opt/skills/xlsx/scripts/build_xlsx.py /workspace/work/book.json /workspace/outputs/smoke.xlsx
 start=$(date +%s)
-python /opt/skills/pptx-builder/scripts/preview.py /workspace/outputs/smoke.pptx | tee /tmp/preview.log
+soffice --headless --convert-to pdf --outdir /tmp /workspace/outputs/smoke.pptx >/dev/null
+pdftoppm -png -r 30 /tmp/smoke.pdf /tmp/smoke
 echo "render seconds: $(( $(date +%s) - start ))"
-test "$(grep -c '^PNG ' /tmp/preview.log)" -eq 3
-grep -q "OVERFLOW slide=3" /tmp/preview.log || { echo "overflow check FAILED"; exit 1; }
-echo "overflow check OK"
+test "$(ls /tmp/smoke-*.png | wc -l)" -eq 10
+echo "render OK"
 # 网络应当完全不通（docker 用 --network none，k8s 靠 NetworkPolicy）
 python - <<'PY'
 import socket
