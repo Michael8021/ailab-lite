@@ -29,6 +29,7 @@ from ..schemas import (
     EventOut,
     FileOut,
     FilePatch,
+    InternalRunDetail,
     RunDetail,
     RunStatusIn,
     UsageIn,
@@ -47,9 +48,87 @@ def _run_or_404(db: Session, run_id: str) -> Run:
     return run
 
 
-@router.get("/runs/{run_id}", response_model=RunDetail)
+ATTACHMENT_CHARS = 30_000  # of one attachment's text given to the model
+ATTACHMENTS_CHARS = 60_000  # of all of a run's attachments together
+
+
+def _attachment_texts(db: Session, run: Run) -> list[dict]:
+    """The run's input files, each with the text the Worker extracted (so the model can read it without a sandbox)."""
+    storage = get_storage()
+    out, budget = [], ATTACHMENTS_CHARS
+    for file_id in run.input_file_ids or []:
+        f = db.get(FileObject, file_id)
+        if f is None:
+            continue
+        meta = f.meta or {}
+        text = ""
+        if meta.get("text_key"):
+            try:
+                text = storage.get_bytes(meta["text_key"]).decode("utf-8", "replace")
+            except Exception:
+                log.warning("attachment text missing for %s", file_id, exc_info=True)
+        total = len(text) or int((meta.get("extract") or {}).get("chars") or 0)
+        if not text and meta.get("excerpt"):  # processed before full texts were kept: the excerpt is all there is
+            text = meta["excerpt"]
+        keep = text[: max(0, min(ATTACHMENT_CHARS, budget))]
+        budget -= len(keep)
+        out.append(
+            {
+                "file_id": f.id,
+                "filename": f.filename,
+                "kind": (meta.get("extract") or {}).get("kind", ""),
+                "chars": total,
+                "text": keep,
+                "truncated": len(keep) < total,
+            }
+        )
+    return out
+
+
+HISTORY_TURNS = 12
+HISTORY_CHARS = 4000  # per reply: older answers are context, not something to repeat verbatim
+
+
+def workspace_key(run_id: str) -> str:
+    """Where the Broker keeps the sandbox workspace a turn left behind (derived, never taken from a caller)."""
+    return f"workspaces/{run_id}.tgz"
+
+
+def _earlier_turns(db: Session, run: Run) -> list[Run]:
+    if not run.conversation_id:
+        return []
+    return list(
+        db.scalars(
+            select(Run)
+            .where(Run.conversation_id == run.conversation_id, Run.created_at <= run.created_at, Run.id != run.id)
+            .order_by(Run.created_at, Run.id)
+        )
+    )
+
+
+@router.get("/runs/{run_id}", response_model=InternalRunDetail)
 def internal_get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
-    return run_dict(db, _run_or_404(db, run_id), detail=True)
+    """The run, and for a conversation turn: the earlier turns (for the model) and the workspace to restore (for the Broker)."""
+    run = _run_or_404(db, run_id)
+    out = run_dict(db, run, detail=True)
+    earlier = _earlier_turns(db, run)
+    history = []
+    for turn in earlier[-HISTORY_TURNS:]:
+        reply = turn.summary or (f"（这一轮失败了：{turn.error}）" if turn.error else "")
+        if turn.status == RunStatus.CANCELED:
+            reply = (reply + "\n" if reply else "") + "（用户中止了这一轮）"
+        files = [
+            f.filename
+            for f in db.scalars(select(FileObject).join(Artifact, Artifact.file_id == FileObject.id).where(Artifact.run_id == turn.id))
+        ]
+        history.append({"prompt": turn.prompt, "reply": reply[:HISTORY_CHARS], "status": turn.status, "files": files})
+    out["history"] = history
+    out["input_files"] = _attachment_texts(db, run)
+    out["workspace_restore_key"] = next(
+        (workspace_key(t.id) for t in reversed(earlier) if (t.result or {}).get("workspace_saved")),
+        None,
+    )
+    return out
 
 
 @router.post("/runs/{run_id}/status", response_model=RunDetail)
@@ -58,10 +137,29 @@ def internal_set_status(run_id: str, body: RunStatusIn, db: Session = Depends(ge
     if body.status not in {RunStatus.RUNNING, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELED}:
         raise HTTPException(status_code=400, detail=f"bad status: {body.status}")
     try:
-        run, _ = transition_run(db, run_id, body.status, summary=body.summary, error=body.error, result=body.result)
+        run, changed = transition_run(db, run_id, body.status, summary=body.summary, error=body.error, result=body.result)
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=f"invalid transition: {exc}") from exc
+    if changed and (run.result or {}).get("workspace_saved"):
+        _drop_older_workspaces(db, run)
     return run_dict(db, run, detail=True)
+
+
+def _drop_older_workspaces(db: Session, run: Run) -> None:
+    """Only the newest workspace of a conversation is ever restored; delete the ones before it (best effort)."""
+    storage = get_storage()
+    for turn in _earlier_turns(db, run):
+        result = dict(turn.result or {})
+        if not result.get("workspace_saved"):
+            continue
+        try:
+            storage.delete(workspace_key(turn.id))
+        except Exception:
+            log.warning("could not delete workspace of %s", turn.id, exc_info=True)
+            continue
+        result["workspace_saved"] = False
+        turn.result = result
+    db.commit()
 
 
 @router.post("/runs/{run_id}/events", response_model=EventOut)

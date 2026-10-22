@@ -75,10 +75,11 @@ class MockSandbox(SandboxProvider):
                 timeout=timeout,
                 env=env,
             )
+            host_ws = str(root / "workspace")  # report sandbox paths, as a real sandbox would
             return ExecResult(
                 exit_code=proc.returncode,
-                stdout=proc.stdout[-8000:],
-                stderr=proc.stderr[-8000:],
+                stdout=proc.stdout[-8000:].replace(host_ws, "/workspace"),
+                stderr=proc.stderr[-8000:].replace(host_ws, "/workspace"),
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
         except subprocess.TimeoutExpired as exc:

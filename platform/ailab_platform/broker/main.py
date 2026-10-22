@@ -68,6 +68,8 @@ def create_lease(body: LeaseCreate) -> dict:
         "sandbox_id": lease["sandbox_id"],
         "expires_at": lease["expires_at"],
         "inputs": lease.get("inputs", []),
+        "restored": lease.get("restored"),
+        "restore_error": lease.get("restore_error"),
     }
 
 
@@ -143,6 +145,28 @@ def commit_artifact(lease_id: str, body: CommitIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # API commit failure
         raise HTTPException(status_code=502, detail=f"artifact commit failed: {exc}") from exc
+
+
+@router.post("/leases/{lease_id}/previews")
+def refresh_previews(lease_id: str) -> dict:
+    try:
+        return {"previews": get_manager().refresh_previews(lease_id)}
+    except LeaseError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SandboxError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/leases/{lease_id}/snapshot")
+def snapshot_workspace(lease_id: str) -> dict:
+    try:
+        return get_manager().snapshot(lease_id)
+    except LeaseError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ArtifactRejected as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except SandboxError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.delete("/leases/{lease_id}", status_code=status.HTTP_204_NO_CONTENT)

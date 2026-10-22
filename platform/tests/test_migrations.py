@@ -143,3 +143,54 @@ def test_concurrent_looking_starts_do_not_collide(engine) -> None:
     finally:
         other.dispose()
     assert _version(engine) == _head()
+
+
+def _sqlite_like_production(path):
+    """The API's engine: SQLite with foreign keys enforced (db.py turns them on for every connection)."""
+    from sqlalchemy import event
+
+    eng = create_engine(f"sqlite:///{path}")
+
+    @event.listens_for(eng, "connect")
+    def _fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+    return eng
+
+
+def test_adding_conversations_keeps_runs_that_other_tables_reference(tmp_path) -> None:
+    """0004 must not rebuild `runs`: with foreign keys on, SQLite refuses to drop a table whose rows are referenced."""
+    eng = _sqlite_like_production(tmp_path / "fk.db")
+    _upgrade_to(eng, "0003")
+    with eng.begin() as conn:
+        _seed_user_and_run(conn)
+        conn.execute(
+            text("INSERT INTO run_events (run_id, seq, type, payload, created_at) VALUES ('r1', 1, 'run.created', '{}', '2026-01-01')")
+        )
+    run_migrations(eng)
+    assert _version(eng) == _head()
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT id, conversation_id FROM runs")).one() == ("r1", None)
+        assert conn.execute(text("SELECT count(*) FROM run_events")).scalar() == 1
+    eng.dispose()
+
+
+def test_a_half_applied_0004_is_completed(tmp_path) -> None:
+    """What the first version of 0004 left behind on a live database: conversations and a stray temp table."""
+    eng = _sqlite_like_production(tmp_path / "half.db")
+    _upgrade_to(eng, "0003")
+    with eng.begin() as conn:
+        _seed_user_and_run(conn)
+        conn.execute(
+            text(
+                "CREATE TABLE conversations (id VARCHAR(40) PRIMARY KEY, user_id VARCHAR(40) NOT NULL, title VARCHAR(200) NOT NULL, "
+                "model VARCHAR(120) NOT NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, deleted_at DATETIME)"
+            )
+        )
+        conn.execute(text("CREATE TABLE _alembic_tmp_runs (id VARCHAR(40))"))
+    run_migrations(eng)
+    assert _version(eng) == _head()
+    tables = set(inspect(eng).get_table_names())
+    assert "_alembic_tmp_runs" not in tables and "conversations" in tables
+    assert "conversation_id" in {c["name"] for c in inspect(eng).get_columns("runs")}
+    eng.dispose()

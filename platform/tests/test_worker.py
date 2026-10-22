@@ -56,3 +56,26 @@ def test_worker_message_handling(monkeypatch) -> None:
     assert q.outstanding(settings.file_queue) == []
     assert patched[-1][0] == "f2" and patched[-1][2] == "rejected"
     assert all(status != "ready" for _, _, status in patched)
+
+
+def test_the_full_text_is_kept_for_the_agent() -> None:
+    from ailab_platform.storage import get_storage
+    from ailab_platform.worker.pipeline import process_file
+
+    class Platform:
+        def __init__(self):
+            self.meta = None
+
+        def get_file(self, file_id):
+            return {"status": "pending", "filename": "a.txt", "content_type": "text/plain"}
+
+        def get_file_bytes(self, file_id):
+            return ("长文本" * 1000).encode()
+
+        def patch_file(self, file_id, meta=None, status=None):
+            self.meta = meta
+
+    p = Platform()
+    process_file("fil_textkeep", platform=p, storage=get_storage())
+    assert p.meta["text_key"] == "derived/fil_textkeep/text.txt"
+    assert get_storage().get_bytes(p.meta["text_key"]).decode() == "长文本" * 1000

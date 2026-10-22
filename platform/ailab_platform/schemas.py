@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,21 +29,42 @@ class ArtifactOut(ORMModel):
     download_url: str = ""
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)  # the length policy is applied when a password is *set*
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
+    display_name: str | None = Field(default=None, max_length=120)
+    invite_code: str | None = Field(default=None, max_length=200)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
 class RunCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     title: str | None = Field(default=None, max_length=200)
     file_ids: list[str] = Field(default_factory=list)
     model: str | None = Field(default=None, max_length=120)
+    mode: Literal["chat", "work"] = "work"  # chat: answer in words only, no tools, never a sandbox
+    skill: str | None = Field(default=None, max_length=40)  # a skill the user picked (implies work)
 
 
 class RunOut(ORMModel):
     id: str
     user_id: str
+    conversation_id: str | None = None
     title: str
     prompt: str
     status: str
     model: str
     input_file_ids: list[str]
+    options: dict = Field(default_factory=dict)
     summary: str
     error: str
     result: dict
@@ -55,6 +77,44 @@ class RunDetail(RunOut):
     artifacts: list[ArtifactOut] = Field(default_factory=list)
     input_files: list[dict] = Field(default_factory=list)
     usage: dict = Field(default_factory=dict)
+
+
+class InternalRunDetail(RunDetail):
+    """What the Agent and Broker get: the run plus its conversation context (never sent to browsers)."""
+
+    history: list[dict] = Field(default_factory=list)
+    workspace_restore_key: str | None = None
+
+
+class ConversationCreate(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    model: str | None = Field(default=None, max_length=120)
+
+
+class ConversationPatch(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class MessageCreate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=8000)
+    file_ids: list[str] = Field(default_factory=list)
+    model: str | None = Field(default=None, max_length=120)
+    mode: Literal["chat", "work"] = "work"
+    skill: str | None = Field(default=None, max_length=40)
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str
+    model: str
+    created_at: datetime
+    updated_at: datetime
+    last_status: str | None = None
+
+
+class ConversationDetail(ConversationOut):
+    turns: list[RunDetail] = Field(default_factory=list)
+    previews: list[dict] = Field(default_factory=list)
 
 
 class EventOut(ORMModel):
@@ -101,6 +161,8 @@ class LeaseOut(BaseModel):
     sandbox_id: str
     expires_at: datetime
     inputs: list[dict] = Field(default_factory=list)
+    restored: bool | None = None  # a conversation turn: whether the previous turn's workspace came back
+    restore_error: str | None = None
 
 
 class ExecIn(BaseModel):

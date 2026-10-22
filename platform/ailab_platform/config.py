@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     dev_token: str = "dev-demo-token"
     dev_user_email: str = "demo@ailab.local"
     service_token: str = "dev-service-token"
+    # Password login. The first account is created from these at startup (if absent); more with
+    # `python -m ailab_platform.users add`.
+    admin_username: str = ""
+    admin_password: str = ""
+    session_ttl_seconds: int = 8 * 60 * 60
+    # Sign-up on the login page: open (anyone who reaches the Portal) | invite (needs AILAB_INVITE_CODE) | closed
+    registration: str = "open"
+    invite_code: str = ""
+    # per client address. Without a reverse proxy that sets X-Forwarded-For every visitor reaches the API as the
+    # Portal's address, so this is a brake on scripted sign-ups, not a per-person limit.
+    registrations_per_hour: int = 30
+    login_max_failures: int = 5  # per username and per client address ...
+    login_window_seconds: int = 300  # ... within this many seconds
 
     # Models: which ones exist, how each is reached and which key it uses is the catalog's business
     # (models.toml, see catalog.py). Nothing here names a model or holds a key.
@@ -78,6 +91,7 @@ class Settings(BaseSettings):
     max_sandbox_read_bytes: int = 10 * 1024 * 1024  # read_file tool
     max_sandbox_write_bytes: int = 20 * 1024 * 1024  # write_file tool
     max_auto_deliver_files: int = 20
+    max_workspace_bytes: int = 60 * 1024 * 1024  # compressed workspace carried between turns of a conversation
 
     # OpenSandbox server (T2 dev stand-in). Set AILAB_SANDBOX_PROVIDER=opensandbox.
     osb_domain: str = "127.0.0.1:8090"
@@ -85,12 +99,17 @@ class Settings(BaseSettings):
     osb_api_key: str = "dev-osb-key"
     osb_request_timeout_seconds: int = 600
 
+    # Picture search for slides, done outside the sandbox: openverse | mock | none (see images.py)
+    image_search_provider: str = "openverse"
+    openverse_token: str = ""
+    image_search_timeout_seconds: int = 20
+
     # Directory holding <skill>/SKILL.md. Unset = the repo checkout (dev); the
     # image sets it to /opt/ailab/skills.
     skills_dir: Path | None = None
 
     # Agent / run limits
-    max_agent_steps: int = 12
+    max_agent_steps: int = 20
     run_max_tokens: int = 2_000_000  # prompt + completion tokens per run
     sandbox_wait_seconds: int = 300  # how long a run queues for a free sandbox
     run_timeout_seconds: int = 900
@@ -123,7 +142,9 @@ class Settings(BaseSettings):
 
     @property
     def models_path(self) -> Path:
-        return self.models_file or (BASE_DIR / "models.toml")
+        # models.local.toml: this machine's own catalog (deploy.sh --model-base-url / --models-file), not in git
+        local = BASE_DIR / "models.local.toml"
+        return self.models_file or (local if local.is_file() else BASE_DIR / "models.toml")
 
     def env_file_path(self) -> Path:
         return Path(os.environ.get("AILAB_ENV_FILE", BASE_DIR / ".env"))
@@ -133,9 +154,8 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def pptx_skill_path(self) -> Path:
-        root = self.skills_dir or (BASE_DIR.parent / "images" / "sbx-office" / "skills")
-        return root / "pptx-builder" / "SKILL.md"
+    def skills_path(self) -> Path:
+        return self.skills_dir or (BASE_DIR.parent / "images" / "sbx-office" / "skills")
 
     def validate_secrets(self) -> None:
         """Refuse to start outside dev-like environments with the published default tokens."""

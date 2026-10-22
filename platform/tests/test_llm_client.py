@@ -104,3 +104,79 @@ def test_malformed_tool_arguments_are_flagged_not_guessed() -> None:
 def test_reasoning_content_is_captured() -> None:
     client, _ = _client(lambda n, r: _ok(reasoning_content="thinking..."))
     assert _chat(client).reasoning_content == "thinking..."
+
+
+def _sse(*chunks: dict) -> httpx.Response:
+    import json as _json
+
+    body = "".join(f"data: {_json.dumps(c, ensure_ascii=False)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+
+def test_streaming_hands_over_thinking_then_text_and_assembles_tool_calls() -> None:
+    client, _ = _client(
+        lambda n, r: _sse(
+            {"choices": [{"delta": {"reasoning_content": "let me "}}]},
+            {"choices": [{"delta": {"reasoning_content": "think"}}]},
+            {"choices": [{"delta": {"content": "Hel"}}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "lo",
+                            "tool_calls": [{"index": 0, "id": "c1", "function": {"name": "exec", "arguments": '{"cmd"'}}],
+                        }
+                    }
+                ]
+            },
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": ': "ls"}'}}]}, "finish_reason": "tool_calls"}]},
+            {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 7, "prompt_cache_hit_tokens": 2}},
+        )
+    )
+    seen: list[tuple[str, str]] = []
+
+    async def text(t):
+        seen.append(("text", t))
+
+    async def thinking(t):
+        seen.append(("think", t))
+
+    r = asyncio.run(client.chat_stream([{"role": "user", "content": "x"}], [], "m", on_text=text, on_reasoning=thinking))
+    assert seen == [("think", "let me "), ("think", "think"), ("text", "Hel"), ("text", "lo")]
+    assert r.content == "Hello" and r.reasoning_content == "let me think"
+    assert r.tool_calls[0].name == "exec" and r.tool_calls[0].arguments == {"cmd": "ls"}
+    assert r.usage == {"prompt_tokens": 5, "completion_tokens": 7, "cached_tokens": 2}
+
+
+def test_reasoning_is_stripped_unless_the_upstream_wants_it_back() -> None:
+    import json as _json
+
+    history = [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "", "reasoning_content": "why", "tool_calls": []},
+        {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+    ]
+    bodies: list[dict] = []
+
+    def handler(n, request):
+        body = _json.loads(request.content)
+        bodies.append(body)
+        if "reasoning_content" not in body["messages"][1]:
+            return httpx.Response(
+                400, json={"error": {"message": "The `reasoning_content` in the thinking mode must be passed back to the API."}}
+            )
+        return _ok()
+
+    client, _ = _client(handler)
+    assert asyncio.run(client.chat(history, [], "m")).content == "hi"
+    assert ["reasoning_content" in b["messages"][1] for b in bodies] == [False, True]
+    assert client.echo_reasoning is True  # remembered: the next call sends it straight away
+    asyncio.run(client.chat_stream(history, [], "m"))
+    assert "reasoning_content" in bodies[-1]["messages"][1]
+
+
+def test_an_unrelated_400_is_not_retried_with_reasoning() -> None:
+    client, seen = _client(lambda n, r: httpx.Response(400, text="bad request: unknown model"))
+    with pytest.raises(LLMError, match="400"):
+        _chat(client)
+    assert len(seen) == 1 and client.echo_reasoning is False

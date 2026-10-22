@@ -29,7 +29,9 @@ import pytest
 
 PLATFORM = Path(__file__).resolve().parents[1]
 PORTAL_SRC = Path(os.environ.get("AILAB_E2E_PORTAL_DIR") or PLATFORM / "portal")  # point elsewhere to try an upgrade
-TOKEN = "e2e-login-token-0123456789abcdef"
+TOKEN = "e2e-api-token-0123456789abcdef"  # the static API token (scripts); people sign in with a password
+USERNAME = "e2e-user"
+PASSWORD = "e2e-password-1234"
 SERVICE_TOKEN = "e2e-service-token-0123456789abcdef0123"
 BASE_PORT = int(os.environ.get("AILAB_E2E_BASE_PORT", "18080"))
 PORTAL_PORT = int(os.environ.get("AILAB_E2E_PORTAL_PORT", "13000"))
@@ -56,6 +58,7 @@ class Stack:
     token: str = TOKEN
     service_token: str = SERVICE_TOKEN
     log_dir: Path = LOG_DIR
+    env: dict | None = None  # the environment the API runs with, for commands that must see the same database
 
 
 def _wait(url: str, what: str, seconds: int = 90) -> None:
@@ -77,7 +80,7 @@ def _build_portal(workdir: Path) -> Path:
     dst = workdir / "portal"
     dst.mkdir()
     # "middleware.ts" was renamed "proxy.ts" in Next 16; copy whichever exists
-    names = ("app", "lib", "middleware.ts", "proxy.ts", "next.config.mjs", "tsconfig.json")
+    names = ("app", "components", "lib", "middleware.ts", "proxy.ts", "next.config.mjs", "tsconfig.json")
     for name in (*names, "package.json", "package-lock.json", "next-env.d.ts"):
         src = PORTAL_SRC / name
         if not src.exists():
@@ -115,10 +118,13 @@ def stack(tmp_path_factory):
         AILAB_RUN_QUEUE=f"ailab:stream:e2e-runs-{tag}",
         AILAB_FILE_QUEUE=f"ailab:stream:e2e-files-{tag}",
         AILAB_SANDBOX_PROVIDER="mock",
+        AILAB_IMAGE_SEARCH_PROVIDER="mock",
         AILAB_MODELS_FILE=str(PLATFORM / "tests" / "models.test.toml"),
         AILAB_API_BASE_URL=f"http://127.0.0.1:{ports['api']}",
         AILAB_BROKER_BASE_URL=f"http://127.0.0.1:{ports['broker']}",
         AILAB_DEV_TOKEN=TOKEN,
+        AILAB_ADMIN_USERNAME=USERNAME,
+        AILAB_ADMIN_PASSWORD=PASSWORD,
         AILAB_SERVICE_TOKEN=SERVICE_TOKEN,
         AILAB_RUN_TIMEOUT_SECONDS="120",
         AILAB_REAPER_INTERVAL_SECONDS="3600",
@@ -150,6 +156,7 @@ def stack(tmp_path_factory):
         )
         _wait(f"http://127.0.0.1:{PORTAL_PORT}/login", "portal")
         yield Stack(
+            env=env,
             portal=f"http://127.0.0.1:{PORTAL_PORT}",
             api=f"http://127.0.0.1:{ports['api']}",
             broker=f"http://127.0.0.1:{ports['broker']}",
@@ -195,9 +202,10 @@ def page(context):
     return context.new_page()
 
 
-def login(page, stack: Stack, token: str = TOKEN, path: str = "/") -> None:
+def login(page, stack: Stack, username: str = USERNAME, password: str = PASSWORD, path: str = "/") -> None:
     page.goto(stack.portal + path)
-    page.fill("input[type=password]", token)
+    page.fill("input[name=username]", username)
+    page.fill("input[type=password]", password)
     page.click("button[type=submit]")
     page.wait_for_selector("input[type=password]", state="detached", timeout=15000)
 

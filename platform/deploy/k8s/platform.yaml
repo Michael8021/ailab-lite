@@ -19,13 +19,14 @@ metadata:
   namespace: platform
 data:
   AILAB_ENV: k3s
+  AILAB_ADMIN_USERNAME: admin  # the first Portal account; its password is AILAB_ADMIN_PASSWORD in platform-secrets
   AILAB_REDIS_URL: redis://platform-redis:6379/0
   AILAB_DATABASE_URL: sqlite:////data/platform.db
   AILAB_STORAGE_ROOT: /data/storage
   AILAB_SANDBOX_PROVIDER: opensandbox
   AILAB_OSB_DOMAIN: 127.0.0.1:8090
   AILAB_SANDBOX_IMAGE: harbor.ailab.local/sandbox/sbx-office:lite
-  AILAB_MAX_AGENT_STEPS: "16"
+  AILAB_MAX_AGENT_STEPS: "24"
   AILAB_MAX_SANDBOXES: "1"
 ---
 apiVersion: v1
@@ -103,6 +104,7 @@ spec:
           command: ["uvicorn", "ailab_platform.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           ports: [{containerPort: 8080}]
           volumeMounts:
@@ -170,6 +172,7 @@ spec:
           command: ["uvicorn", "ailab_platform.broker.main:app", "--host", "0.0.0.0", "--port", "8081"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: AILAB_API_BASE_URL
@@ -206,6 +209,7 @@ spec:
           command: ["uvicorn", "ailab_platform.agent.main:app", "--host", "0.0.0.0", "--port", "8082"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: HOST_IP
@@ -257,6 +261,7 @@ spec:
           command: ["uvicorn", "ailab_platform.worker.main:app", "--host", "0.0.0.0", "--port", "8083"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: AILAB_API_BASE_URL

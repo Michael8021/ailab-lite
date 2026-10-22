@@ -13,17 +13,19 @@
 #   id              what users select and what runs/usage records store (letters, digits . _ -)
 #   provider        "openai" = any OpenAI-compatible chat API (DeepSeek, Higress, vLLM...) | "mock"
 #   weight          quota multiplier: a call costs tokens x weight against the daily/monthly limits
+#   echo_reasoning  true for thinking models that demand reasoning_content back on tool turns (DeepSeek V4.x)
 #   default         the model preselected for new runs (exactly one, or the first one is used)
 
 [[models]]
-id = "ailab-agent-pro"
-name = "AILab 旗舰"
-description = "复杂任务与工具调用，质量优先。"
+id = "deepseek-v4.1-flash"
+name = "DeepSeek V4.1 Flash"
+description = "速度快、成本低，适合日常任务与工具调用。"
 provider = "openai"
 base_url = "https://api.deepseek.com"
 api_key_env = "AILAB_KEY_DEEPSEEK"
-upstream_model = "deepseek-chat"
-weight = 3
+upstream_model = "deepseek-flash"
+weight = 1
+echo_reasoning = true
 default = true
 
 [[models]]

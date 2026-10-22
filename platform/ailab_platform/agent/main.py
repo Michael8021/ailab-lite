@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import socket
 from contextlib import asynccontextmanager
 
@@ -121,6 +122,33 @@ async def consume_forever() -> None:
             request_id_var.reset(rid)
 
 
+def begin_drain(loop: asyncio.AbstractEventLoop) -> None:
+    """Stop taking runs and hand the current one back, now - not when the web server gets round to shutting down.
+
+    On SIGTERM uvicorn first waits for open connections (up to the pod's grace period) and only then runs the
+    lifespan shutdown. Until then the consumer would keep taking new runs, and the pod is killed in the middle of
+    one, which then sits with a dead consumer until the visibility timeout (~16 minutes).
+    """
+    if _task and not _task.done():
+        log.info("SIGTERM: handing the current run back and taking no new ones")
+        loop.call_soon_threadsafe(_task.cancel)
+
+
+def _chain_sigterm(loop: asyncio.AbstractEventLoop) -> None:
+    """Run begin_drain on SIGTERM, then whatever handler was there (uvicorn's, which starts its own shutdown)."""
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def handler(signum, frame) -> None:
+        begin_drain(loop)
+        if callable(previous):
+            previous(signum, frame)
+
+    try:
+        signal.signal(signal.SIGTERM, handler)
+    except ValueError:  # not the main thread (e.g. a test client): nothing to chain
+        pass
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global _task
@@ -128,6 +156,7 @@ async def lifespan(_: FastAPI):
     settings.ensure_dirs()
     system_prompt()  # raises if the skill file is missing
     _task = asyncio.create_task(consume_forever(), name="agent-consumer")
+    _chain_sigterm(asyncio.get_running_loop())
     catalog = get_catalog()  # logs which models are hidden for want of a key
     log.info("agent service ready sandbox=%s models=%s", settings.sandbox_provider, [m.id for m in catalog.available()])
     yield

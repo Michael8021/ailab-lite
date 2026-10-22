@@ -57,6 +57,10 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("usr"))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(120), default="")
+    # Password login. A user without them can only be reached with an API token.
+    username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     tokens: Mapped[list[ApiToken]] = relationship(back_populates="user")
@@ -71,8 +75,23 @@ class ApiToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # None: never (API tokens)
 
     user: Mapped[User] = relationship(back_populates="tokens")
+
+
+class Conversation(Base):
+    """A chat thread. Each user message starts one Run (a turn); turns share history and a sandbox workspace."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cnv"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")  # the last model picked here
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Run(Base):
@@ -80,11 +99,14 @@ class Run(Base):
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("run"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="")
     prompt: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=RunStatus.QUEUED, index=True)
     model: Mapped[str] = mapped_column(String(120), default="")
     input_file_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # how the user asked: {"mode": "chat" | "work", "skill": "pptx" | ...} (empty for runs from before)
+    options: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     summary: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")

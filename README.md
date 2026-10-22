@@ -11,8 +11,19 @@
 
 ```bash
 git clone https://github.com/shijunan126-creator/ailab-lite && cd ailab-lite
-sudo ./deploy.sh --model-key sk-xxxxxxxx     # 不带 --model-key 也行：先用"离线演示"模型体验完整链路
+sudo ./deploy.sh --model-key sk-xxxxxxxx     # 默认接 DeepSeek V4.1 Flash；不带 --model-key 也行：先用"离线演示"模型体验完整链路
+
+# 换成任何 OpenAI 兼容接口（OpenAI、通义、Kimi、vLLM、Ollama、自建网关……）：
+sudo ./deploy.sh --model-base-url https://dashscope.aliyuncs.com/compatible-mode/v1 --model-name qwen-plus \
+                 --model-key sk-xxxxxxxx --model-label "通义千问 Plus"
+sudo ./deploy.sh --model-base-url http://10.0.0.5:8000/v1 --model-name Qwen/Qwen3-32B   # 本地 vLLM，无需 Key
+# 多个模型：--models-file my-models.toml（格式见 platform/models.toml）
+
+# 注册：默认开放，任何能打开 Portal 的人都能注册；也可以要邀请码或关闭
+sudo ./deploy.sh --skip-build --registration invite --invite-code 你的邀请码
 ```
+
+部署时会先用给定的地址、模型名和 Key 试调一次模型，地址写错或 Key 不对当场就能发现。
 
 脚本会依次：检查前置条件 → 构建沙箱镜像（缺则构建，首次要几分钟）和平台镜像并导入 k3s →
 启动 OpenSandbox → 生成随机令牌和 Secret → 发布模型目录 → 部署 5 个服务 → 构建并启动 Portal → 冒烟测试
@@ -25,7 +36,7 @@ sudo ./deploy.sh --model-key sk-xxxxxxxx     # 不带 --model-key 也行：先�
 ./deploy.sh --help
 ```
 
-打开 http://127.0.0.1:3000，粘贴打印出来的令牌登录，在工作台选模型、提交任务（如"帮我做一个 PPT，介绍…"）。
+打开 http://127.0.0.1:3000，用打印出来的账号（用户名 `admin` + 随机密码）登录，直接对话：可以普通问答，也可以让它做 PPT / Excel（右侧实时预览，可以接着对话修改）。
 Portal 默认只监听本机，从自己电脑看用 `ssh -L 3000:127.0.0.1:3000 <机器>`；`--listen 0.0.0.0` 会在网络上暴露
 一个 HTTP 登录页，仅限可信网络。k3s 本身的安装见 `tests/t0_base.sh`，平台的详细说明见 [platform/README.md](platform/README.md)。
 
@@ -80,7 +91,7 @@ dpkg -r runsc
 ## 目录
 
 - `k3s/`：k3s 配置、runsc 的 containerd 片段
-- `images/sbx-office/`：沙箱镜像、pptx-builder Skill、冒烟脚本
+- `images/sbx-office/`：沙箱镜像、办公技能（pptx / xlsx）、冒烟脚本
 - `deploy/base`、`deploy/overlays/lite`：部署文件（大集群对应 `overlays/prod`）
 - `platform/`：自研平台服务（Portal / Platform API / Agent / Broker / Worker）与 dev 启动脚本
 - `tests/`：各组测试脚本；`logs/`：本机测试输出与 iptables 快照（只在本机，不入库）

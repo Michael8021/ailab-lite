@@ -40,11 +40,13 @@ def run_dict(db: Session, run: Run, detail: bool = False) -> dict:
     out = {
         "id": run.id,
         "user_id": run.user_id,
+        "conversation_id": run.conversation_id,
         "title": run.title,
         "prompt": run.prompt,
         "status": run.status,
         "model": run.model,
         "input_file_ids": run.input_file_ids or [],
+        "options": run.options or {},
         "summary": run.summary,
         "error": run.error,
         "result": run.result or {},

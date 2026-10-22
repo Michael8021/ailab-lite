@@ -6,8 +6,19 @@
 #   ./deploy.sh down [--yes]          remove the platform from k3s (and stop the Portal)
 #
 # Options (for `up`):
-#   --model-key KEY    API key for the "AILab 旗舰" model (DeepSeek). Also read from $AILAB_KEY_DEEPSEEK or
-#                      platform/.env. Without a key only the offline demo model is selectable.
+#   Model (any OpenAI-compatible chat API: DeepSeek, OpenAI, Qwen/DashScope, Kimi, vLLM, Ollama, a gateway ...):
+#   --model-base-url URL   the URL before /chat/completions, e.g. https://api.openai.com/v1 or http://10.0.0.5:8000/v1
+#   --model-name NAME      the model as that API names it, e.g. gpt-4o-mini, qwen-plus, Qwen/Qwen3-32B
+#   --model-key KEY        its API key (optional for keyless local servers). Without --model-base-url the key is for
+#                          the catalog's default model (DeepSeek V4.1 Flash out of the box)
+#   --model-label TEXT     the name users see (default: the model name)
+#   --model-no-tools       the model cannot call tools: chat only, no files
+#   --models-file FILE     a whole catalog instead (format: platform/models.toml), e.g. several models
+#     --model-base-url / --models-file are remembered in platform/models.local.toml (not in git);
+#     --models-file platform/models.toml goes back to the stock catalog.
+#   Sign-up:
+#   --registration MODE    open (anyone who can reach the Portal), invite (needs --invite-code) or closed
+#   --invite-code CODE     the code new users must enter in invite mode
 #   --skip-build       reuse the images already built/imported (config-only redeploy)
 #   --no-portal        do not build/start the Portal (needs node/npm otherwise)
 #   --listen ADDR      Portal bind address (default 127.0.0.1; 0.0.0.0 exposes it on the network - plain HTTP!)
@@ -15,7 +26,7 @@
 #   --dry-run          print what would be done, change nothing
 #   -h, --help
 #
-# Safe to run repeatedly. It never prints a model key; the login token is printed once at the end.
+# Safe to run repeatedly. It never prints a model key; the admin password is printed once at the end.
 # Prerequisites it checks for you: docker, k3s (or kubectl + a kubeconfig), curl, openssl, python3, root.
 set -euo pipefail
 
@@ -29,12 +40,27 @@ BROKER_URL=http://127.0.0.1:8081
 OSB_URL=http://127.0.0.1:8090
 PORTAL_PORT=3000
 
-CMD=up MODEL_KEY=${AILAB_KEY_DEEPSEEK:-} SKIP_BUILD=0 WITH_PORTAL=1 LISTEN=127.0.0.1 SMOKE_REAL=0 DRY=0 YES=0
+CMD=up MODEL_KEY='' SKIP_BUILD=0 WITH_PORTAL=1 LISTEN=127.0.0.1 SMOKE_REAL=0 DRY=0 YES=0
+MODEL_BASE_URL='' MODEL_NAME='' MODEL_LABEL='' MODEL_NO_TOOLS=0 MODELS_FILE='' REGISTRATION='' INVITE_CODE=''
+CATALOG='' KEY_ENV='' DEFAULT_MODEL=''
 while [ $# -gt 0 ]; do
   case "$1" in
     up|status|down) CMD=$1 ;;
     --model-key) MODEL_KEY=${2:?--model-key needs a value}; shift ;;
     --model-key=*) MODEL_KEY=${1#*=} ;;
+    --model-base-url) MODEL_BASE_URL=${2:?--model-base-url needs a value}; shift ;;
+    --model-base-url=*) MODEL_BASE_URL=${1#*=} ;;
+    --model-name) MODEL_NAME=${2:?--model-name needs a value}; shift ;;
+    --model-name=*) MODEL_NAME=${1#*=} ;;
+    --model-label) MODEL_LABEL=${2:?--model-label needs a value}; shift ;;
+    --model-label=*) MODEL_LABEL=${1#*=} ;;
+    --model-no-tools) MODEL_NO_TOOLS=1 ;;
+    --models-file) MODELS_FILE=${2:?--models-file needs a value}; shift ;;
+    --models-file=*) MODELS_FILE=${1#*=} ;;
+    --registration) REGISTRATION=${2:?--registration needs open, invite or closed}; shift ;;
+    --registration=*) REGISTRATION=${1#*=} ;;
+    --invite-code) INVITE_CODE=${2:?--invite-code needs a value}; shift ;;
+    --invite-code=*) INVITE_CODE=${1#*=} ;;
     --skip-build) SKIP_BUILD=1 ;;
     --no-portal) WITH_PORTAL=0 ;;
     --listen) LISTEN=${2:?--listen needs an address}; shift ;;
@@ -42,7 +68,7 @@ while [ $# -gt 0 ]; do
     --smoke-real) SMOKE_REAL=1 ;;
     --dry-run) DRY=1 ;;
     --yes|-y) YES=1 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -65,6 +91,7 @@ trap 'rc=$?; [ -z "$JAR" ] || rm -f "$JAR"; [ $rc -eq 0 ] || echo "${R}deploy st
 
 k() { $KUBECTL -n "$NS" "$@"; }
 dev_token() { k get secret platform-secrets -o jsonpath='{.data.AILAB_DEV_TOKEN}' | base64 -d; }
+admin_password() { k get secret platform-secrets -o jsonpath='{.data.AILAB_ADMIN_PASSWORD}' 2>/dev/null | base64 -d; }
 
 wait_http() {  # url, seconds, label
   local url=$1 secs=$2 label=$3 i
@@ -80,8 +107,10 @@ portal_pid() {  # pid of whatever listens on the Portal port, if anything
   ss -ltnp 2>/dev/null | awk -v p=":$PORTAL_PORT" '$4 ~ p"$" {print $NF}' | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2
 }
 
-read_env_key() {  # AILAB_KEY_DEEPSEEK from platform/.env, without echoing it anywhere
-  [ -f "$PLATFORM/.env" ] && grep -E '^AILAB_KEY_DEEPSEEK=.' "$PLATFORM/.env" | head -1 | cut -d= -f2- || true
+read_env_key() {  # $1 (an AILAB_KEY_* name) from the environment or platform/.env, without echoing it anywhere
+  [ -n "$1" ] || return 0
+  if [ -n "${!1:-}" ]; then printf %s "${!1}"; return 0; fi
+  [ -f "$PLATFORM/.env" ] && grep -E "^$1=." "$PLATFORM/.env" | head -1 | cut -d= -f2- || true
 }
 
 # --------------------------------------------------------------------------------------- status
@@ -142,16 +171,76 @@ preflight() {
       die "port $PORTAL_PORT is used by another program (pid $pid); free it or use --no-portal"
     fi
   fi
-  [ -n "$MODEL_KEY" ] || MODEL_KEY=$(read_env_key)
-  if [ -n "$MODEL_KEY" ]; then ok "model key found: the flagship model will be available"
-  else warn "no model key (--model-key, \$AILAB_KEY_DEEPSEEK or platform/.env): only the offline demo model will be selectable"; fi
+  resolve_models
+  case "${REGISTRATION:-}" in
+    ""|open|closed) ;;
+    invite) [ -n "$INVITE_CODE" ] || die "--registration invite needs --invite-code" ;;
+    *) die "--registration must be open, invite or closed" ;;
+  esac
+}
+
+# Which catalog to publish, which key the default model needs, and a quick call to a custom endpoint.
+resolve_models() {
+  local mc="python3 $PLATFORM/scripts/make_catalog.py" local_cat="$PLATFORM/models.local.toml"
+  if [ -n "$MODELS_FILE" ]; then
+    [ -f "$MODELS_FILE" ] || die "--models-file: $MODELS_FILE not found"
+    $mc check "$MODELS_FILE" >/dev/null || die "--models-file: not a valid catalog"
+    if [ "$(cd "$(dirname "$MODELS_FILE")" && pwd)/$(basename "$MODELS_FILE")" = "$PLATFORM/models.toml" ]; then
+      run rm -f "$local_cat"; ok "back to the stock catalog (platform/models.toml)"
+    else
+      run cp "$MODELS_FILE" "$local_cat"; ok "catalog from $MODELS_FILE (kept as platform/models.local.toml)"
+    fi
+  elif [ -n "$MODEL_BASE_URL" ]; then
+    [ -n "$MODEL_NAME" ] || die "--model-base-url needs --model-name (the model as that API names it)"
+    local args=(--base-url "$MODEL_BASE_URL" --name "$MODEL_NAME")
+    [ -n "$MODEL_LABEL" ] && args+=(--label "$MODEL_LABEL")
+    [ -n "$MODEL_KEY" ] && args+=(--key-env AILAB_KEY_MAIN)
+    [ "$MODEL_NO_TOOLS" = 1 ] && args+=(--no-tools)
+    [ "$DRY" = 1 ] && local_cat=$(mktemp --suffix=.toml)  # show what would be published, write nothing real
+    ok "model $($mc custom "$local_cat" "${args[@]}") -> $MODEL_BASE_URL ($MODEL_NAME)$([ "$DRY" = 1 ] && echo ", would be saved in" || echo ", saved in") platform/models.local.toml"
+  elif [ -n "$MODEL_NAME$MODEL_LABEL" ]; then
+    die "--model-name / --model-label need --model-base-url"
+  fi
+  CATALOG=$PLATFORM/models.toml
+  [ -f "$local_cat" ] && CATALOG=$local_cat
+  $mc check "$CATALOG" >/dev/null || die "$CATALOG is not a valid catalog"
+  KEY_ENV=$($mc key-env "$CATALOG")
+  DEFAULT_MODEL=$($mc default "$CATALOG")
+  ok "catalog $(basename "$CATALOG"): $($mc check "$CATALOG")  (default: $DEFAULT_MODEL)"
+  [ -n "$MODEL_KEY" ] || MODEL_KEY=$(read_env_key "$KEY_ENV")
+  if [ -z "$KEY_ENV" ] && [ -n "$MODEL_KEY" ]; then warn "--model-key given, but $DEFAULT_MODEL takes no key: pass --model-base-url and --model-name again together with --model-key"
+  elif [ -z "$KEY_ENV" ]; then ok "the default model needs no key"
+  elif [ -n "$MODEL_KEY" ]; then ok "key for $DEFAULT_MODEL found ($KEY_ENV)"
+  else warn "no key for $DEFAULT_MODEL (--model-key, \$$KEY_ENV or platform/.env): it stays hidden; the offline demo model works"; fi
+
+  if [ -n "$MODEL_BASE_URL" ] && [ "$DRY" != 1 ]; then  # catch a wrong URL / name / key now, not at the first chat
+    local code body
+    body=$(mktemp)
+    code=$(curl -s -m 60 -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' ${MODEL_KEY:+-H "Authorization: Bearer $MODEL_KEY"} \
+      -d "$(python3 -c 'import json,sys; print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}))' "$MODEL_NAME")" \
+      "${MODEL_BASE_URL%/}/chat/completions" || true)
+    if [ "$code" = 200 ]; then ok "the model answers ($MODEL_NAME)"
+    else warn "test call to ${MODEL_BASE_URL%/}/chat/completions returned ${code:-no answer}: $(head -c 200 "$body" | tr '\n' ' ')"; fi
+    rm -f "$body"
+  fi
 }
 
 build_images() {
   step "sandbox image ($SANDBOX_IMAGE)"
-  if docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then ok "present"
-  elif [ "$SKIP_BUILD" = 1 ]; then die "--skip-build but $SANDBOX_IMAGE does not exist"
-  else warn "not found: building it (a few minutes, needs network for apt/pip)"; run docker build -t "$SANDBOX_IMAGE" "$ROOT/images/sbx-office"; fi
+  # The image carries a hash of images/sbx-office (Dockerfile, skills, smoke test): rebuild when the skills change.
+  local want have
+  want=$(cd "$ROOT/images/sbx-office" && find . -type f -not -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
+  have=$(docker image inspect --format '{{index .Config.Labels "ailab.content-hash"}}' "$SANDBOX_IMAGE" 2>/dev/null || true)
+  if [ "$have" = "$want" ]; then ok "up to date ($want)"
+  elif [ "$SKIP_BUILD" = 1 ]; then
+    docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1 || die "--skip-build but $SANDBOX_IMAGE does not exist"
+    warn "out of date with images/sbx-office, kept because of --skip-build"
+  else
+    if docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then ok "skills or Dockerfile changed: rebuilding (cached layers make this quick)"
+    else warn "not found: building it (a few minutes, needs network for apt/pip)"; fi
+    run nice -n 19 docker build -q --label "ailab.content-hash=$want" -t "$SANDBOX_IMAGE" "$ROOT/images/sbx-office" >/dev/null
+    ok "built ($want)"
+  fi
 
   step "platform image ($PLATFORM_IMAGE) -> k3s containerd"
   if [ "$SKIP_BUILD" = 1 ]; then ok "skipped (--skip-build)"; return; fi
@@ -173,27 +262,57 @@ deploy_platform() {
   local existing=0; k get secret platform-secrets >/dev/null 2>&1 && existing=1
   if [ "$existing" = 0 ]; then
     if [ "$DRY" = 1 ]; then echo "    (dry-run) create platform-secrets with random tokens${MODEL_KEY:+ and the model key}"
-    else AILAB_KEY_DEEPSEEK=$MODEL_KEY bash "$PLATFORM/scripts/k8s_secrets.sh" >/dev/null; ok "created with random tokens"; fi
+    elif [ -n "$KEY_ENV" ] && [ -n "$MODEL_KEY" ]; then env "$KEY_ENV=$MODEL_KEY" bash "$PLATFORM/scripts/k8s_secrets.sh" >/dev/null; ok "created with random tokens and $KEY_ENV"
+    else bash "$PLATFORM/scripts/k8s_secrets.sh" >/dev/null; ok "created with random tokens"; fi
   else
     ok "exists (tokens kept)"
-    if [ -n "$MODEL_KEY" ] && [ "$DRY" != 1 ]; then
-      local have want; have=$(k get secret platform-secrets -o jsonpath='{.data.AILAB_KEY_DEEPSEEK}' 2>/dev/null || true); want=$(printf %s "$MODEL_KEY" | base64 -w0)
-      if [ "$have" != "$want" ]; then k patch secret platform-secrets --type merge -p "{\"data\":{\"AILAB_KEY_DEEPSEEK\":\"$want\"}}" >/dev/null; ok "model key updated"; fi
+    # secrets made before password login existed have no admin password yet
+    if [ "$DRY" != 1 ] && [ -z "$(admin_password)" ]; then
+      k patch secret platform-secrets --type merge -p "{\"data\":{\"AILAB_ADMIN_PASSWORD\":\"$(printf %s "$(openssl rand -hex 10)" | base64 -w0)\"}}" >/dev/null; ok "admin password generated"
+    fi
+    if [ -n "$KEY_ENV" ] && [ -n "$MODEL_KEY" ] && [ "$DRY" != 1 ]; then
+      local have want; have=$(k get secret platform-secrets -o "jsonpath={.data.$KEY_ENV}" 2>/dev/null || true); want=$(printf %s "$MODEL_KEY" | base64 -w0)
+      if [ "$have" != "$want" ]; then k patch secret platform-secrets --type merge -p "{\"data\":{\"$KEY_ENV\":\"$want\"}}" >/dev/null; ok "$KEY_ENV updated"; fi
     fi
   fi
+  if [ -n "$INVITE_CODE" ] && [ "$DRY" != 1 ]; then
+    k patch secret platform-secrets --type merge -p "{\"data\":{\"AILAB_INVITE_CODE\":\"$(printf %s "$INVITE_CODE" | base64 -w0)\"}}" >/dev/null
+    ok "invite code set"
+  fi
 
-  step "model catalog (platform/models.toml)"
-  run env NO_RESTART=1 bash "$PLATFORM/scripts/k8s_models.sh" | tail -2
+  step "model catalog ($(basename "$CATALOG"))"
+  run env NO_RESTART=1 MODELS_FILE="$CATALOG" bash "$PLATFORM/scripts/k8s_models.sh" | tail -2
+
+  step "sign-up"
+  if [ -n "$REGISTRATION" ]; then
+    run sh -c "$KUBECTL -n $NS create configmap platform-auth --from-literal=AILAB_REGISTRATION=$REGISTRATION --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null"
+    ok "registration: $REGISTRATION"
+  else
+    ok "registration: $(k get configmap platform-auth -o jsonpath='{.data.AILAB_REGISTRATION}' 2>/dev/null || echo open) (unchanged; --registration to change)"
+  fi
 
   step "deploying to k3s"
   local was_deployed=0; k get deploy platform-api >/dev/null 2>&1 && was_deployed=1
-  run $KUBECTL apply -f "$PLATFORM/deploy/k8s/platform.yaml" | grep -v unchanged || true
+  local applied; applied=$(run $KUBECTL apply -f "$PLATFORM/deploy/k8s/platform.yaml" || true)
+  printf '%s\n' "$applied" | grep -v unchanged | sed 's/^/    /' || true
   if [ "$was_deployed" = 1 ]; then
-    for d in api broker agent worker; do run $KUBECTL -n "$NS" rollout restart "deploy/platform-$d" >/dev/null; done  # same image tag: restart to pick up new code/config
+    # Same image tag: restart to pick up new code/config - but only what apply left unchanged. Restarting a
+    # deployment apply just changed starts a second generation of pods while the first is still coming up.
+    for d in api broker agent worker; do
+      printf '%s\n' "$applied" | grep -q "deployment.apps/platform-$d configured" && continue
+      run $KUBECTL -n "$NS" rollout restart "deploy/platform-$d" >/dev/null
+    done
   fi
   if [ "$DRY" != 1 ]; then
     for d in redis api broker agent worker; do k rollout status "deploy/platform-$d" --timeout=300s >/dev/null || die "deployment platform-$d did not become ready: $(k get pods | head -8)"; done
     ok "5 deployments ready"
+    # Pods of the previous generation may still be shutting down; one of them must not take the smoke test's run.
+    local i
+    for i in $(seq 1 90); do
+      $KUBECTL -n "$NS" get pods -o jsonpath='{range .items[*]}{.metadata.deletionTimestamp}{"\n"}{end}' | grep -q . || break
+      sleep 1
+    done
+    ok "previous pods are gone"
   fi
   wait_http "$API_URL/readyz" 90 "Platform API (:30080)" || die "API not ready"
   wait_http "$BROKER_URL/readyz" 60 "Sandbox Broker (:8081)" || die "Broker not ready"
@@ -223,7 +342,7 @@ start_portal() {
   wait_http "http://127.0.0.1:$PORTAL_PORT/login" 60 "Portal" || { tail -20 "$PLATFORM/var/log/portal.log"; die "Portal did not start"; }
   portal_pid > "$PLATFORM/var/run/portal.pid" || true
   cd "$ROOT"
-  [ "$LISTEN" = 127.0.0.1 ] || warn "the Portal listens on $LISTEN over plain HTTP: the session cookie and token travel unencrypted; put TLS in front before real use"
+  [ "$LISTEN" = 127.0.0.1 ] || warn "the Portal listens on $LISTEN over plain HTTP: the password and session cookie travel unencrypted; put TLS in front before real use"
 }
 
 smoke_test() {
@@ -235,7 +354,8 @@ smoke_test() {
   if [ "$WITH_PORTAL" = 1 ]; then
     local p=http://127.0.0.1:$PORTAL_PORT
     [ "$(curl -s -o /dev/null -w '%{http_code}' "$p/api/v1/runs")" = 401 ] && ok "Portal API proxy refuses anonymous requests" || die "Portal proxy is open to anonymous requests"
-    curl -fsS -c "$JAR" -X POST -H 'Content-Type: application/json' -d "{\"token\":\"$tok\"}" "$p/api/auth/login" >/dev/null || die "login through the Portal failed"
+    [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$tok\"}" "$p/api/auth/login")" = 401 ] && ok "the API token is not accepted as a password" || die "the API token works as a Portal password"
+    curl -fsS -c "$JAR" -X POST -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"$(admin_password)\"}" "$p/api/auth/login" >/dev/null || die "login through the Portal failed"
     grep -q HttpOnly "$JAR" && ok "login works; session cookie is httpOnly" || die "session cookie is not httpOnly"
     curl -fsS -b "$JAR" "$p/api/v1/models" | grep -q '"models"' && ok "models are listed through the Portal proxy" || die "models not reachable through the Portal"
   fi
@@ -254,19 +374,25 @@ smoke_test() {
   }
   case " $models " in *" ailab-demo "*) smoke_run ailab-demo "你好，在沙箱里执行一条命令" 120 ;; esac
   if [ "$SMOKE_REAL" = 1 ]; then
-    case " $models " in *" ailab-agent-pro "*) smoke_run ailab-agent-pro "在沙箱里执行 echo deploy-ok，然后一句话告诉我输出" 240 ;; *) warn "flagship model unavailable (no key): skipping the real-model task" ;; esac
+    case " $models " in
+      *" $DEFAULT_MODEL "*) [ "$DEFAULT_MODEL" = ailab-demo ] || smoke_run "$DEFAULT_MODEL" "在沙箱里执行 echo deploy-ok，然后一句话告诉我输出" 240 ;;
+      *) warn "$DEFAULT_MODEL unavailable (no key): skipping the real-model task" ;;
+    esac
   fi
 }
 
 summary() {
-  local tok; tok=$(dev_token 2>/dev/null || echo "<see below>")
+  local pw; pw=$(admin_password 2>/dev/null || echo "<see below>")
   echo
   echo "${G}${B}AILab lite is up.${N}"
-  [ "$WITH_PORTAL" = 1 ] && echo "  Portal        http://$([ "$LISTEN" = 0.0.0.0 ] && hostname -I | awk '{print $1}' || echo "$LISTEN"):$PORTAL_PORT   (log in with the token below)"
+  [ "$WITH_PORTAL" = 1 ] && echo "  Portal        http://$([ "$LISTEN" = 0.0.0.0 ] && hostname -I | awk '{print $1}' || echo "$LISTEN"):$PORTAL_PORT   (log in with the account below)"
   echo "  API / docs    $API_URL/docs"
-  echo "  login token   $tok"
-  echo "                (again later:  $KUBECTL -n $NS get secret platform-secrets -o jsonpath='{.data.AILAB_DEV_TOKEN}' | base64 -d)"
-  [ -n "$MODEL_KEY" ] || echo "  ${Y}no model key: add one with  ./deploy.sh --skip-build --no-portal --model-key sk-...${N}"
+  echo "  login         user  admin"
+  echo "                pass  $pw"
+  echo "                (again later:  $KUBECTL -n $NS get secret platform-secrets -o jsonpath='{.data.AILAB_ADMIN_PASSWORD}' | base64 -d)"
+  echo "  more users    $KUBECTL -n $NS exec -it deploy/platform-api -- python -m ailab_platform.users add NAME"
+  [ -z "$KEY_ENV" ] || [ -n "$MODEL_KEY" ] || echo "  ${Y}no model key: add one with  ./deploy.sh --skip-build --no-portal --model-key sk-...${N}"
+  echo "  sign-up       $(k get configmap platform-auth -o jsonpath='{.data.AILAB_REGISTRATION}' 2>/dev/null || echo open) (users register on the login page; --registration open|invite|closed)"
   echo
   echo "  status:    ./deploy.sh status        remove:  ./deploy.sh down"
   echo "  Portal only listens on this machine; from your laptop:  ssh -L $PORTAL_PORT:127.0.0.1:$PORTAL_PORT <this-host>"
