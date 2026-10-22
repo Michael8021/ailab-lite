@@ -10,6 +10,7 @@ import os
 import shutil
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
@@ -22,6 +23,17 @@ class Storage(ABC):
 
     @abstractmethod
     def get_bytes(self, key: str) -> bytes: ...
+
+    def put_file(self, key: str, path: str | Path, content_type: str = "application/octet-stream") -> None:
+        """Upload a file without materializing it as one bytes object (default fallback)."""
+        self.put_bytes(key, Path(path).read_bytes(), content_type)
+
+    def size(self, key: str) -> int:
+        return len(self.get_bytes(key))
+
+    def stream(self, key: str, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
+        """Yield an object in chunks; the default fallback loads it once."""
+        yield self.get_bytes(key)
 
     @abstractmethod
     def delete(self, key: str) -> None: ...
@@ -78,6 +90,25 @@ class LocalStorage(Storage):
     def get_bytes(self, key: str) -> bytes:
         return self._path(key).read_bytes()
 
+    def put_file(self, key: str, path: str | Path, content_type: str = "application/octet-stream") -> None:
+        dst = self._path(key)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(f".{dst.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            shutil.copyfile(path, tmp)
+            os.replace(tmp, dst)
+        finally:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+
+    def size(self, key: str) -> int:
+        return self._path(key).stat().st_size
+
+    def stream(self, key: str, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
+        with open(self._path(key), "rb") as fh:
+            while chunk := fh.read(chunk_size):
+                yield chunk
+
     def delete(self, key: str) -> None:
         path = self._path(key)
         try:
@@ -117,6 +148,16 @@ class S3Storage(Storage):
 
     def get_bytes(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=_safe_key(key))["Body"].read()
+
+    def put_file(self, key: str, path: str | Path, content_type: str = "application/octet-stream") -> None:
+        self.client.upload_file(str(path), self.bucket, _safe_key(key), ExtraArgs={"ContentType": content_type})
+
+    def size(self, key: str) -> int:
+        return int(self.client.head_object(Bucket=self.bucket, Key=_safe_key(key))["ContentLength"])
+
+    def stream(self, key: str, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
+        body = self.client.get_object(Bucket=self.bucket, Key=_safe_key(key))["Body"]
+        yield from body.iter_chunks(chunk_size)
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=_safe_key(key))

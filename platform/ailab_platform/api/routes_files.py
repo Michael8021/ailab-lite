@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+import os
+import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -55,45 +59,57 @@ async def upload_file(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    # Bounded copy out of Starlette's spooled upload (oversized requests are already refused
-    # on Content-Length by the middleware in main.py).
-    buf = bytearray()
-    while chunk := await upload.read(1024 * 1024):
-        buf += chunk
-        if len(buf) > settings.max_upload_bytes:
-            raise HTTPException(status_code=413, detail=f"file exceeds {settings.max_upload_bytes} bytes")
-    data = bytes(buf)
-    if not data:
-        raise HTTPException(status_code=400, detail="empty file")
-    with user_critical_section(db, user.id):  # quota check and the file row are one step
-        enforce_library_quota(db, user.id, len(data))
+    # Stream Starlette's spooled upload to a temp file while hashing. Only the
+    # chunk and the object-storage copy exist at once, never the whole file twice.
+    tmp = tempfile.NamedTemporaryFile(prefix="ailab-upload-", delete=False)
+    storage = get_storage()
+    try:
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := await upload.read(1024 * 1024):
+            size += len(chunk)
+            if size > settings.max_upload_bytes:
+                raise HTTPException(status_code=413, detail=f"file exceeds {settings.max_upload_bytes} bytes")
+            digest.update(chunk)
+            tmp.write(chunk)
+        tmp.close()
+        if size == 0:
+            raise HTTPException(status_code=400, detail="empty file")
 
         filename = safe_filename(upload.filename or "file")
         content_type = upload.content_type or "application/octet-stream"
-        version = 1
-        if parent_id:
-            parent = _owned_file(db, parent_id, user)
-            version = parent.version + 1
-
         file_id = new_id("fil")
         key = f"uploads/{user.id}/{file_id}/{filename}"
-        get_storage().put_bytes(key, data, content_type)
-        file = FileObject(
-            id=file_id,
-            user_id=user.id,
-            filename=filename,
-            content_type=content_type,
-            size=len(data),
-            sha256=hashlib.sha256(data).hexdigest(),
-            storage_key=key,
-            status=FileStatus.PENDING,
-            version=version,
-            parent_id=parent_id,
-            meta={"processing": "queued"},
-        )
-        db.add(file)
-        db.commit()
-        db.refresh(file)
+        try:
+            await asyncio.to_thread(storage.put_file, key, tmp.name, content_type)
+            with user_critical_section(db, user.id):  # quota check and the file row are one step
+                enforce_library_quota(db, user.id, size)
+                version = 1
+                if parent_id:
+                    parent = _owned_file(db, parent_id, user)
+                    version = parent.version + 1
+                file = FileObject(
+                    id=file_id,
+                    user_id=user.id,
+                    filename=filename,
+                    content_type=content_type,
+                    size=size,
+                    sha256=digest.hexdigest(),
+                    storage_key=key,
+                    status=FileStatus.PENDING,
+                    version=version,
+                    parent_id=parent_id,
+                    meta={"processing": "queued"},
+                )
+                db.add(file)
+                db.commit()
+                db.refresh(file)
+        except Exception:
+            storage.delete(key)
+            raise
+    finally:
+        tmp.close()
+        os.unlink(tmp.name)
 
     try:
         get_queue().enqueue(settings.file_queue, {"file_id": file.id})
@@ -125,11 +141,17 @@ def download_file(file_id: str, user: User = Depends(current_user), db: Session 
     file = _owned_file(db, file_id, user)
     if file.status != FileStatus.READY:
         raise HTTPException(status_code=409, detail=f"file is {file.status}, not downloadable")
-    data = get_storage().get_bytes(file.storage_key)
-    return Response(
-        content=data,
+    # Do not pin the request's DB connection for the duration of the download:
+    # the stream reads object storage only. Closing here is safe (the dependency
+    # close is idempotent).
+    db.close()
+    return StreamingResponse(
+        get_storage().stream(file.storage_key),
         media_type=file.content_type,
-        headers={"Content-Disposition": content_disposition(file.filename)},
+        headers={
+            "Content-Disposition": content_disposition(file.filename),
+            "Content-Length": str(file.size),
+        },
     )
 
 
@@ -187,21 +209,24 @@ def complete_upload(file_id: str, user: User = Depends(current_user), db: Sessio
     storage = get_storage()
     if not storage.exists(file.storage_key):
         raise HTTPException(status_code=409, detail="object not uploaded yet")
-    data = storage.get_bytes(file.storage_key)
-    if len(data) > settings.max_upload_bytes:
+    size = storage.size(file.storage_key)
+    if size > settings.max_upload_bytes:
         storage.delete(file.storage_key)
         db.delete(file)
         db.commit()
         raise HTTPException(status_code=413, detail=f"file exceeds {settings.max_upload_bytes} bytes")
     try:
-        enforce_library_quota(db, user.id, len(data))
+        enforce_library_quota(db, user.id, size)
     except HTTPException:
         storage.delete(file.storage_key)
         db.delete(file)
         db.commit()
         raise
-    file.size = len(data)
-    file.sha256 = hashlib.sha256(data).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in storage.stream(file.storage_key):
+        digest.update(chunk)
+    file.size = size
+    file.sha256 = digest.hexdigest()
     file.meta = {"processing": "queued"}
     db.commit()
     db.refresh(file)

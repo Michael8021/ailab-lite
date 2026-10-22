@@ -8,6 +8,7 @@ import logging
 from pathlib import PurePath
 
 from ..clients import PlatformClient
+from ..config import settings
 from ..storage import Storage
 
 log = logging.getLogger("ailab.worker")
@@ -114,8 +115,14 @@ def _process_file(file_id: str, platform: PlatformClient, storage: Storage | Non
         platform.patch_file(file_id, meta={"processing": "rejected", "scan": scan}, status="rejected")
         return {"file_id": file_id, "rejected": scan}
 
-    info = extract(data, meta["filename"], meta.get("content_type") or "")
-    text = info.pop("text", "")
+    if len(data) > settings.max_parse_bytes:
+        # Office/PDF parsers can use several times the file size. Keep the file
+        # usable but skip the parse instead of OOMing the 256 MiB Worker pod.
+        info = {"kind": "too_large", "chars": 0, "bytes": len(data), "truncated": True}
+        text = ""
+    else:
+        info = extract(data, meta["filename"], meta.get("content_type") or "")
+        text = info.pop("text", "")
     derived = {
         "file_id": file_id,
         "filename": meta["filename"],

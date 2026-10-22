@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -256,10 +257,15 @@ def internal_commit_artifact(body: ArtifactIn, db: Session = Depends(get_db)) ->
 
     if not storage.exists(body.staging_key):
         raise HTTPException(status_code=409, detail="staging object not found")
-    data = storage.get_bytes(body.staging_key)
-    if len(data) != body.size:
-        raise reject(400, f"size mismatch: got {len(data)} expected {body.size}")
-    digest = hashlib.sha256(data).hexdigest()
+    actual_size = storage.size(body.staging_key)
+    if actual_size != body.size:
+        raise reject(400, f"size mismatch: got {actual_size} expected {body.size}")
+    # Hash the staged object in chunks: artifact limits allow 100 MB and the
+    # API should not hold a second full copy just to verify it.
+    hasher = hashlib.sha256()
+    for chunk in storage.stream(body.staging_key):
+        hasher.update(chunk)
+    digest = hasher.hexdigest()
     if digest != body.sha256:
         raise reject(400, "sha256 mismatch")
 
@@ -272,7 +278,7 @@ def internal_commit_artifact(body: ArtifactIn, db: Session = Depends(get_db)) ->
         user_id=run.user_id,
         filename=filename,
         content_type=body.content_type,
-        size=len(data),
+        size=actual_size,
         sha256=digest,
         storage_key=final_key,
         status=FileStatus.READY,
@@ -321,11 +327,14 @@ def internal_get_file_content(file_id: str, db: Session = Depends(get_db)) -> Re
     file = db.get(FileObject, file_id)
     if file is None:
         raise HTTPException(status_code=404, detail="file not found")
-    data = get_storage().get_bytes(file.storage_key)
-    return Response(
-        content=data,
+    db.close()  # the stream reads storage only; don't hold a pool connection for it
+    return StreamingResponse(
+        get_storage().stream(file.storage_key),
         media_type=file.content_type,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.filename)}"},
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file.filename)}",
+            "Content-Length": str(file.size),
+        },
     )
 
 

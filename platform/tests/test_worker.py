@@ -82,3 +82,33 @@ def test_the_full_text_is_kept_for_the_agent() -> None:
     process_file("fil_textkeep", platform=p, storage=get_storage())
     assert p.meta["text_key"] == "derived/fil_textkeep/text.txt"
     assert get_storage().get_bytes(p.meta["text_key"]).decode() == "长文本" * 1000
+
+
+def test_large_file_is_not_parsed(monkeypatch) -> None:
+    """The Worker keeps the file usable but skips a parser that could OOM it."""
+    from ailab_platform.config import settings
+    from ailab_platform.storage import get_storage
+    from ailab_platform.worker.pipeline import process_file
+
+    monkeypatch.setattr(settings, "max_parse_bytes", 5)
+
+    class Platform:
+        def __init__(self):
+            self.meta = None
+            self.status = None
+
+        def get_file(self, file_id):
+            return {"status": "pending", "filename": "big.pdf", "content_type": "application/pdf"}
+
+        def get_file_bytes(self, file_id):
+            return b"%PDF-1.7" + b"x" * 100
+
+        def patch_file(self, file_id, meta=None, status=None):
+            self.meta = meta
+            self.status = status
+
+    platform = Platform()
+    process_file("fil_bigparse", platform=platform, storage=get_storage())
+    assert platform.meta["extract"]["kind"] == "too_large"
+    assert platform.meta["extract"]["truncated"] is True
+    assert platform.status == "ready"
