@@ -31,6 +31,27 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def current_user_short(request: Request) -> User:
+    """Authenticate and close the session immediately.
+
+    FastAPI finalizes ``yield`` dependencies only after a StreamingResponse
+    completes, so ``current_user`` (which depends on ``get_db``) keeps one pool
+    connection for the whole life of every SSE stream. With a 5+10 QueuePool,
+    ~15 viewers would exhaust it and block the event loop. Endpoints that stream
+    must use this dependency instead.
+    """
+    with SessionLocal() as db:
+        user = authenticate(db, bearer_token(request))
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid or missing token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        db.expunge(user)  # detached before close; scalar attributes are already loaded
+        return user
+
+
 def metrics_auth(request: Request, x_service_token: str | None = Header(default=None)) -> None:
     """/metrics shows traffic and queue sizes: guard it with the service token, in either of the two forms."""
     bearer = bearer_token(request)

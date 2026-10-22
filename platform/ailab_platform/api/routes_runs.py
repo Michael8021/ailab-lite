@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -17,7 +18,7 @@ from ..agent.prompts import skills
 from ..catalog import get_catalog
 from ..config import settings
 from ..db import SessionLocal
-from ..deps import current_user, get_db
+from ..deps import current_user, current_user_short, get_db
 from ..events import append_event, list_events
 from ..locks import user_critical_section
 from ..models import Conversation, FileObject, FileStatus, Run, RunEvent, RunStatus, User, utcnow
@@ -37,6 +38,13 @@ def _get_owned_run(db: Session, run_id: str, user: User) -> Run:
     if run is None or run.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     return run
+
+
+def _owns_run(run_id: str, user_id: str) -> bool:
+    """Ownership check on a throwaway session, safe to call from a worker thread."""
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        return run is not None and run.user_id == user_id
 
 
 @router.get("/usage")
@@ -188,6 +196,20 @@ def get_preview(run_id: str, name: str, user: User = Depends(current_user), db: 
     return Response(content=data, media_type=media, headers={"Cache-Control": "private, max-age=86400, immutable"})
 
 
+SSE_FAST_POLLS = 8  # ~2 s of quiet at the fast rate before backing off
+
+
+def sse_poll_delay(idle_polls: int) -> float:
+    """Seconds until the next poll of a run's events.
+
+    Fast (0.25 s) while events flow and for ~2 s after the last one: a streamed answer arrives in batches about
+    0.25 s apart, so a single empty poll in between must not drop the stream to the slow rate and make it
+    stutter. After that, 1 s: 200 idle viewers at 4 polls/s would be 800 DB queries/s. Jitter spreads them out.
+    """
+    base = 0.25 if idle_polls < SSE_FAST_POLLS else 1.0
+    return base + random.uniform(0, 0.05 if base < 1 else 0.15)
+
+
 def _poll_events(run_id: str, after: int) -> tuple[list[tuple[int, str, dict]], str]:
     with SessionLocal() as db:
         rows = db.scalars(select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.seq > after).order_by(RunEvent.seq).limit(200)).all()
@@ -201,12 +223,13 @@ async def stream_events(
     run_id: str,
     request: Request,
     after: int = Query(default=0, ge=0),
-    user: User = Depends(current_user),
+    user: User = Depends(current_user_short),
 ) -> StreamingResponse:
-    with SessionLocal() as db:
-        run = db.get(Run, run_id)
-        if run is None or run.user_id != user.id:
-            raise HTTPException(status_code=404, detail="run not found")
+    # Do not keep a Session (or its pool connection) open for the stream: the
+    # dependency above closes its session immediately. The ownership check is a
+    # short query, always run off the event loop.
+    if not await asyncio.to_thread(_owns_run, run_id, user.id):
+        raise HTTPException(status_code=404, detail="run not found")
 
     last_id = after
     if not last_id:
@@ -234,7 +257,7 @@ async def stream_events(
                 idle += 1
                 if idle % 20 == 0:
                     yield ": ping\n\n"
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(sse_poll_delay(idle))
 
     return StreamingResponse(
         gen(),
