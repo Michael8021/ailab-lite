@@ -194,3 +194,16 @@ def test_a_half_applied_0004_is_completed(tmp_path) -> None:
     assert "_alembic_tmp_runs" not in tables and "conversations" in tables
     assert "conversation_id" in {c["name"] for c in inspect(eng).get_columns("runs")}
     eng.dispose()
+
+
+def test_a_database_that_ran_user_settings_as_0006_is_repaired(tmp_path) -> None:
+    """A database that applied an unreleased numbering: users.settings exists, version says 0006, no 0006 indexes."""
+    eng = _sqlite_like_production(tmp_path / "renumbered.db")
+    _upgrade_to(eng, "0005")
+    with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN settings JSON"))
+        conn.execute(text("UPDATE alembic_version SET version_num = '0006'"))
+    run_migrations(eng)
+    assert _version(eng) == _head()
+    assert "ix_runs_user_created" in {i["name"] for i in inspect(eng).get_indexes("runs")}
+    eng.dispose()
