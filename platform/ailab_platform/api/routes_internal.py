@@ -21,7 +21,7 @@ from ..catalog import get_catalog
 from ..config import settings
 from ..deps import get_db, service_auth
 from ..events import append_event
-from ..models import Artifact, FileObject, FileStatus, ModelUsage, Run, RunStatus, new_id
+from ..models import Artifact, FileObject, FileStatus, ModelUsage, Run, RunStatus, User, new_id
 from ..run_state import InvalidTransition, transition_run
 from ..schemas import (
     ArtifactIn,
@@ -126,6 +126,8 @@ def internal_get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
         history.append({"prompt": turn.prompt, "reply": reply[:HISTORY_CHARS], "status": turn.status, "files": files})
     out["history"] = history
     out["input_files"] = _attachment_texts(db, run)
+    owner = db.get(User, run.user_id)
+    out["disabled_skills"] = list(((owner.settings if owner else None) or {}).get("disabled_skills") or [])
     out["workspace_restore_key"] = next(
         (workspace_key(t.id) for t in reversed(earlier) if (t.result or {}).get("workspace_saved")),
         None,

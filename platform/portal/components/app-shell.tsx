@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api, Conversation, Me, Usage } from "../lib/api";
 import { formatTokens, timeAgo } from "../lib/format";
-import { IconFolder, IconLogOut, IconNewChat, IconPanel, IconSettings } from "./icons";
+import { IconFolder, IconLogOut, IconNewChat, IconPanel, IconSettings, IconSparkles } from "./icons";
 
 /** Pages tell the sidebar that the conversation list changed (a new one, a title, a finished answer). */
 export const CONVERSATIONS_CHANGED = "ailab:conversations";
@@ -132,6 +132,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </a>
           <a href="/files" className={`side-link ${pathname.startsWith("/files") ? "on" : ""}`}>
             <IconFolder size={17} /> 资料库
+          </a>
+          <a href="/skills" className={`side-link ${pathname.startsWith("/skills") ? "on" : ""}`}>
+            <IconSparkles size={17} /> 技能
           </a>
         </nav>
         <div className="side-section">最近</div>

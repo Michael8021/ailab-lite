@@ -54,6 +54,7 @@ class _Turn:
         self.previews: dict[str, dict] = {}  # filename -> latest preview manifest
         self.preview_task: asyncio.Task | None = None
         self.preview_again = False
+        self.disabled_skills: frozenset[str] = frozenset()  # the user switched these off
         self.thinking: list[str] = []  # the model's reasoning across the turn's steps, kept for the conversation view
         self.thinking_seconds = 0.0
 
@@ -295,6 +296,8 @@ class AgentLoop:
         tool = metrics.tool_label(call.name)
         tool_started = time.perf_counter()
         try:
+            if call.name == "load_skill" and call.arguments.get("name") in turn.disabled_skills:
+                raise ToolError(f"技能 {call.arguments.get('name')} 已被用户关闭，不能使用；用沙箱里的 Python 库自己完成")
             lease_id = await self._ensure_lease(turn, run_id) if call.name in SANDBOX_TOOLS else (turn.lease_id or "")
             result = await self._interruptible(run_id, execute_tool(call.name, call.arguments, lease_id, self.broker))
         except RunCanceled:
@@ -357,6 +360,7 @@ class AgentLoop:
             llm = self.llm or llm_for(model)  # fails the run early if the model is gone from the catalog
             options = run.get("options") or {}
             mode, skill = options.get("mode", "work"), options.get("skill")
+            turn.disabled_skills = frozenset(run.get("disabled_skills") or [])
             if skill:
                 await self._event(run_id, "agent.skill", {"name": skill})
             attached = [f for f in run.get("input_files") or [] if f.get("text")]
@@ -364,7 +368,7 @@ class AgentLoop:
                 files = [{"filename": f["filename"], "chars": f.get("chars"), "truncated": f.get("truncated")} for f in attached]
                 await self._event(run_id, "agent.attachments", {"files": files})
             messages: list[dict] = [
-                {"role": "system", "content": system_prompt_for(mode, skill)},
+                {"role": "system", "content": system_prompt_for(mode, skill, turn.disabled_skills)},
                 *history_messages(run.get("history")),
                 {"role": "user", "content": user_prompt(run["prompt"], run.get("input_files"))},
             ]

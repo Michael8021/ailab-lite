@@ -43,6 +43,8 @@ export type Preview = {
   error?: string;
 };
 
+export type Skill = { name: string; title: string; description: string; builtin: boolean; enabled: boolean };
+
 export type Conversation = {
   id: string;
   title: string;

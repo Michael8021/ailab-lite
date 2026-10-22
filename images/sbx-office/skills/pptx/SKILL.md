@@ -1,5 +1,6 @@
 ---
 name: pptx
+title: 演示文稿（PPT）
 description: 做演示文稿 / PPT / 汇报材料（.pptx）：多种版式、配色主题、图标、原生图表、配图；支持多轮修改
 ---
 

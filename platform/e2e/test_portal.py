@@ -447,3 +447,26 @@ def test_an_attachment_is_read_without_a_sandbox(logged_in, tmp_path) -> None:
     assert "我读到了 1 个附件的内容" in page.inner_text(".msg.assistant .md")
     _open_all_steps(page)
     assert "已读取附件" in page.inner_text(".steps") and "会议纪要.txt" in page.inner_text(".steps")
+
+
+def test_skills_can_be_switched_off_and_their_buttons_go_away(logged_in, stack) -> None:
+    page = logged_in
+    page.click(".side-link:has-text('技能')")
+    page.wait_for_url(stack.portal + "/skills")
+    ppt = page.locator(".skill-row", has_text="演示文稿（PPT）")
+    switch = ppt.locator("button[role=switch]")
+    assert switch.get_attribute("aria-checked") == "true"
+    try:
+        switch.click()
+        page.wait_for_function("() => document.querySelector('.skill-row .switch').getAttribute('aria-checked') === 'false'")
+        page.reload()  # saved on the server, not just in the page
+        page.wait_for_selector(".skill-row.off:has-text('演示文稿（PPT）')")
+        page.goto(stack.portal + "/")
+        page.wait_for_selector(".skill-chip:has-text('Excel 表格')")
+        assert page.locator(".skill-chip:has-text('PPT 生成')").count() == 0
+    finally:
+        page.goto(stack.portal + "/skills")
+        page.wait_for_selector(".skill-row")
+        if ppt.locator("button[role=switch]").get_attribute("aria-checked") == "false":
+            ppt.locator("button[role=switch]").click()
+            page.wait_for_selector(".skill-row:not(.off):has-text('演示文稿（PPT）')")

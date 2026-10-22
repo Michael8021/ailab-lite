@@ -78,6 +78,8 @@ def start_run(
     if skill:
         if skill not in skills():
             raise HTTPException(status_code=400, detail=f"unknown skill: {skill}")
+        if skill in ((user.settings or {}).get("disabled_skills") or []):
+            raise HTTPException(status_code=400, detail=f"技能「{skills()[skill]['title']}」已关闭，可在侧栏「技能」里打开")
         options = {"mode": "work", "skill": skill}  # a skill is work by definition
 
     catalog = get_catalog()

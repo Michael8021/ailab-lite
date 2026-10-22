@@ -52,6 +52,9 @@ Portal 的主界面是**对话**：左边对话列表，中间消息，右边预
   由它判断要不要动手（`runs.options.mode`）。
 - **技能按钮**（工作模式下）：「PPT 生成」「Excel 表格」「数据分析」。点了以后这条消息带 `skill`，Agent 把那份技能说明直接放进系统提示
   （不再等模型自己 `load_skill`），并明确要产出文件；只对这一条消息生效。API 校验技能名必须存在。
+- **技能开关**（侧栏「技能」，参照 Claude.ai 的 Customize > Skills）：列出所有技能（SKILL.md 的 `title` / `description`），每个技能一个开关，
+  按用户存在 `users.settings.disabled_skills`。关掉的技能：系统提示的技能清单里不出现、`load_skill` 被拒绝、输入框不显示对应按钮、
+  消息指定它会被 API 拒绝（400）。API：`GET /v1/skills`、`PUT /v1/skills/{name}` `{enabled}`。上传自定义技能、管理员统一管控尚未实现。
 - **附件直接读**：Worker 解析上传文件时把全文存到 `derived/<file>/text.txt`；Agent 拿到的 Run 里每个附件带着抽取出的文字
   （单个最多 3 万字、合计 6 万字，超出的标明"只读了前 N 字"），放进用户消息。文本、PDF、Word、PPT、Excel 的总结和问答因此不用沙箱，
   对话模式下也能用；需要处理原文件（改表、画图）时，工作模式里文件仍在 `/workspace/inputs/`。改动前上传的文件只有 300 字摘录。

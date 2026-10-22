@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized } from "../../lib/api";
+import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized, Skill } from "../../lib/api";
 import { IconChart, IconFile, IconSend, IconSheet, IconSlides } from "../icons";
 
 type Attachment = { id: string; filename: string; status: string };
@@ -48,8 +48,13 @@ export default function Composer({
   const [picked, setPicked] = useState<(typeof SKILLS)[number] | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
 
+  const [enabled, setEnabled] = useState<Set<string> | null>(null); // skills switched on in the 技能 page
+
   useEffect(() => {
     if (localStorage.getItem("ailab.mode") === "chat") setModeState("chat");
+    api<Skill[]>("/v1/skills")
+      .then((list) => setEnabled(new Set(list.filter((s) => s.enabled).map((s) => s.name))))
+      .catch(() => setEnabled(null));
   }, []);
 
   function setMode(next: Mode) {
@@ -172,7 +177,7 @@ export default function Composer({
           ))}
         </div>
         {mode === "work"
-          ? SKILLS.map((s) => (
+          ? SKILLS.filter((s) => !enabled || enabled.has(s.skill)).map((s) => (
               <button
                 key={s.key}
                 className={`skill-chip ${picked?.key === s.key ? "on" : ""}`}
