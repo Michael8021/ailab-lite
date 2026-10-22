@@ -447,3 +447,56 @@ def test_an_attachment_is_read_without_a_sandbox(logged_in, tmp_path) -> None:
     assert "我读到了 1 个附件的内容" in page.inner_text(".msg.assistant .md")
     _open_all_steps(page)
     assert "已读取附件" in page.inner_text(".steps") and "会议纪要.txt" in page.inner_text(".steps")
+
+
+def test_skills_can_be_switched_off_and_their_buttons_go_away(logged_in, stack) -> None:
+    page = logged_in
+    page.click(".side-link:has-text('技能')")
+    page.wait_for_url(stack.portal + "/skills")
+    ppt = page.locator(".skill-row", has_text="演示文稿（PPT）")
+    switch = ppt.locator("button[role=switch]")
+    assert switch.get_attribute("aria-checked") == "true"
+    try:
+        switch.click()
+        page.wait_for_function("() => document.querySelector('.skill-row .switch').getAttribute('aria-checked') === 'false'")
+        page.reload()  # saved on the server, not just in the page
+        page.wait_for_selector(".skill-row.off:has-text('演示文稿（PPT）')")
+        page.goto(stack.portal + "/")
+        page.wait_for_selector(".skill-chip:has-text('Excel 表格')")
+        assert page.locator(".skill-chip:has-text('PPT 生成')").count() == 0
+    finally:
+        page.goto(stack.portal + "/skills")
+        page.wait_for_selector(".skill-row")
+        if ppt.locator("button[role=switch]").get_attribute("aria-checked") == "false":
+            ppt.locator("button[role=switch]").click()
+            page.wait_for_selector(".skill-row:not(.off):has-text('演示文稿（PPT）')")
+
+
+def test_a_personal_skill_uploaded_to_the_library_can_be_picked(logged_in, stack, tmp_path) -> None:
+    page = logged_in
+    name = f"weekly-{uuid.uuid4().hex[:6]}"
+    skill = tmp_path / "SKILL.md"
+    skill.write_text(f"---\nname: {name}\ntitle: 周报助手\ndescription: 按团队模板写周报\n---\n# 步骤\n先列本周完成。\n", encoding="utf-8")
+    page.goto(stack.portal + "/skills")
+    page.wait_for_selector(".skill-row")
+    page.set_input_files("input[accept='.md,.zip']", str(skill))
+    row = page.locator(".skill-row", has_text="周报助手")
+    row.wait_for(timeout=40000)
+    assert row.locator("button[role=switch]").get_attribute("aria-checked") == "true"
+    assert name in row.inner_text()
+
+    page.goto(stack.portal + "/files")  # it is a file in the library
+    page.wait_for_selector(".skill-file-chip:has-text('周报助手')")
+
+    page.goto(stack.portal + "/")
+    page.click(".skill-chip:has-text('周报助手')")
+    _start_conversation(page, "帮我写本周周报")
+    _wait_for_turns(page, 1)
+    assert page.inner_text(".msg.user .attach-chip") == "周报助手"
+    _open_all_steps(page)
+    assert "已加载技能" in "\n".join(page.locator(".steps").all_inner_texts())
+
+    page.goto(stack.portal + "/skills")  # deleting the skill deletes the file
+    page.on("dialog", lambda d: d.accept())
+    page.locator(".skill-row", has_text="周报助手").locator("button:has-text('删除')").click()
+    page.wait_for_function("() => !document.body.innerText.includes('周报助手')", timeout=15000)

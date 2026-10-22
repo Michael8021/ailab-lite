@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized } from "../../lib/api";
-import { IconChart, IconFile, IconSend, IconSheet, IconSlides } from "../icons";
+import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized, Skill } from "../../lib/api";
+import { IconChart, IconFile, IconSend, IconSheet, IconSlides, IconSparkles } from "../icons";
 
 type Attachment = { id: string; filename: string; status: string };
 export type Mode = "chat" | "work";
 export type SendOptions = { mode: Mode; skill?: string };
 
+type SkillButton = { key: string; skill: string; label: string; Icon: (p: { size?: number }) => React.ReactElement; placeholder: string };
+
 // What the skill buttons ask for. `skill` is the platform skill that gets preloaded for the model.
-const SKILLS = [
+const SKILLS: SkillButton[] = [
   { key: "ppt", skill: "pptx", label: "PPT 生成", Icon: IconSlides, placeholder: "说说主题、页数和给谁看，比如：给新员工介绍公司的 10 页 PPT" },
   { key: "excel", skill: "xlsx", label: "Excel 表格", Icon: IconSheet, placeholder: "说说表里要有什么，比如：三个区域 7～9 月销售额，带合计和柱状图" },
   { key: "data", skill: "xlsx", label: "数据分析", Icon: IconChart, placeholder: "上传数据文件（Excel / CSV），说说想分析什么、要什么图表" },
@@ -45,11 +47,20 @@ export default function Composer({
   const [files, setFiles] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
   const [mode, setModeState] = useState<Mode>("work");
-  const [picked, setPicked] = useState<(typeof SKILLS)[number] | null>(null);
+  const [picked, setPicked] = useState<SkillButton | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
+
+  const [enabled, setEnabled] = useState<Set<string> | null>(null); // skills switched on in the 技能 page
+  const [mine, setMine] = useState<Skill[]>([]); // the user's own skills (personal, switched on)
 
   useEffect(() => {
     if (localStorage.getItem("ailab.mode") === "chat") setModeState("chat");
+    api<Skill[]>("/v1/skills")
+      .then((list) => {
+        setEnabled(new Set(list.filter((s) => s.enabled).map((s) => s.name)));
+        setMine(list.filter((s) => s.scope === "personal" && s.enabled));
+      })
+      .catch(() => setEnabled(null));
   }, []);
 
   function setMode(next: Mode) {
@@ -58,7 +69,7 @@ export default function Composer({
     if (next === "chat") setPicked(null); // a skill makes files: that is work
   }
 
-  function pick(s: (typeof SKILLS)[number]) {
+  function pick(s: SkillButton) {
     setPicked(picked?.key === s.key ? null : s);
     if (mode === "chat") setMode("work");
     area.current?.focus();
@@ -172,7 +183,16 @@ export default function Composer({
           ))}
         </div>
         {mode === "work"
-          ? SKILLS.map((s) => (
+          ? [
+              ...SKILLS.filter((s) => !enabled || enabled.has(s.skill)),
+              ...mine.map((m) => ({
+                key: `my-${m.name}`,
+                skill: m.name,
+                label: m.title,
+                Icon: IconSparkles,
+                placeholder: `说说要做什么，会按你的「${m.title}」技能来做`,
+              })),
+            ].map((s) => (
               <button
                 key={s.key}
                 className={`skill-chip ${picked?.key === s.key ? "on" : ""}`}

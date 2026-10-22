@@ -15,14 +15,14 @@ import time
 from collections.abc import Awaitable
 from typing import TypeVar
 
-from .. import metrics
+from .. import metrics, skillfiles
 from ..catalog import get_catalog
 from ..clients import AsyncBrokerClient, AsyncPlatformClient, ClientError
 from ..config import settings
 from ..llm import INVALID_ARGUMENTS_KEY, LLMClient, llm_for
 from ..models import RunStatus
 from ..paths import OUTPUTS
-from .prompts import history_messages, system_prompt_for, user_prompt
+from .prompts import history_messages, personal_header, skills, system_prompt_for, user_prompt
 from .tools import SANDBOX_TOOLS, ToolError, execute_tool, tool_result_message, tools_for_turn
 
 log = logging.getLogger("ailab.agent")
@@ -54,6 +54,9 @@ class _Turn:
         self.previews: dict[str, dict] = {}  # filename -> latest preview manifest
         self.preview_task: asyncio.Task | None = None
         self.preview_again = False
+        self.disabled_skills: frozenset[str] = frozenset()  # the user switched these off
+        self.personal: dict[str, dict] = {}  # the user's own skills (files in their library), by name
+        self.skill_files: dict[str, dict[str, bytes]] = {}  # personal skills read this turn: name -> their files
         self.thinking: list[str] = []  # the model's reasoning across the turn's steps, kept for the conversation view
         self.thinking_seconds = 0.0
 
@@ -200,6 +203,8 @@ class AgentLoop:
         await self._event(run_id, "agent.sandbox", {"lease_id": turn.lease_id, "provider": lease.get("provider")})
         if lease.get("restored") is False and lease.get("restore_error"):
             await self._event(run_id, "agent.warning", {"message": f"上一轮的工作区没能恢复：{lease['restore_error']}"})
+        for name in turn.skill_files:  # personal skills read before the sandbox existed
+            await self._install_skill(turn, name)
         # Files already in outputs (restored from the last turn) are not this turn's work: never auto-deliver them unchanged.
         try:
             for f in await self.broker.list_files(turn.lease_id, OUTPUTS):
@@ -207,6 +212,23 @@ class AgentLoop:
         except Exception:
             log.warning("could not list outputs after leasing for %s", run_id, exc_info=True)
         return turn.lease_id
+
+    # ---- personal skills: read from the user's library, their files copied into the sandbox
+    async def _read_personal(self, turn: _Turn, run_id: str, name: str) -> str:
+        skill = turn.personal[name]
+        data = await self.platform.get_file_bytes(skill["file_id"])
+        try:
+            text, files = skillfiles.unpack(data, skill["filename"])
+        except (skillfiles.SkillFileError, KeyError, ValueError) as exc:
+            raise ToolError(f"个人技能 {name} 的文件读不出来：{exc}") from exc
+        turn.skill_files[name] = files
+        if turn.lease_id:
+            await self._install_skill(turn, name)
+        return personal_header(name) + text
+
+    async def _install_skill(self, turn: _Turn, name: str) -> None:
+        for rel, data in turn.skill_files[name].items():
+            await self.broker.put_file(turn.lease_id, f"/workspace/.ailab/skills/{name}/{rel}", data)
 
     # ---- live previews: rendered by the Broker in the background while the model keeps working
     def _schedule_previews(self, turn: _Turn, run_id: str) -> None:
@@ -295,8 +317,14 @@ class AgentLoop:
         tool = metrics.tool_label(call.name)
         tool_started = time.perf_counter()
         try:
-            lease_id = await self._ensure_lease(turn, run_id) if call.name in SANDBOX_TOOLS else (turn.lease_id or "")
-            result = await self._interruptible(run_id, execute_tool(call.name, call.arguments, lease_id, self.broker))
+            wanted = call.arguments.get("name") if call.name == "load_skill" else None
+            if wanted in turn.disabled_skills:
+                raise ToolError(f"技能 {wanted} 已被用户关闭，不能使用；用沙箱里的 Python 库自己完成")
+            if wanted in turn.personal:
+                result = {"ok": True, "skill": await self._interruptible(run_id, self._read_personal(turn, run_id, wanted))}
+            else:
+                lease_id = await self._ensure_lease(turn, run_id) if call.name in SANDBOX_TOOLS else (turn.lease_id or "")
+                result = await self._interruptible(run_id, execute_tool(call.name, call.arguments, lease_id, self.broker))
         except RunCanceled:
             raise
         except ToolError as exc:
@@ -357,14 +385,23 @@ class AgentLoop:
             llm = self.llm or llm_for(model)  # fails the run early if the model is gone from the catalog
             options = run.get("options") or {}
             mode, skill = options.get("mode", "work"), options.get("skill")
+            turn.disabled_skills = frozenset(run.get("disabled_skills") or [])
+            turn.personal = {s["name"]: s for s in run.get("personal_skills") or []}
+            picked_text = None
+            if skill in turn.personal:
+                picked_text = await self._read_personal(turn, run_id, skill)
             if skill:
-                await self._event(run_id, "agent.skill", {"name": skill})
+                title = (turn.personal.get(skill) or skills().get(skill) or {}).get("title") or skill
+                await self._event(run_id, "agent.skill", {"name": skill, "title": title})
             attached = [f for f in run.get("input_files") or [] if f.get("text")]
             if attached:
                 files = [{"filename": f["filename"], "chars": f.get("chars"), "truncated": f.get("truncated")} for f in attached]
                 await self._event(run_id, "agent.attachments", {"files": files})
             messages: list[dict] = [
-                {"role": "system", "content": system_prompt_for(mode, skill)},
+                {
+                    "role": "system",
+                    "content": system_prompt_for(mode, skill, turn.disabled_skills, list(turn.personal.values()), picked_text),
+                },
                 *history_messages(run.get("history")),
                 {"role": "user", "content": user_prompt(run["prompt"], run.get("input_files"))},
             ]

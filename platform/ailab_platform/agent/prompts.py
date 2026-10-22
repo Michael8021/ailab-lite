@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..config import settings
+from ..skillfiles import frontmatter
 
 BASE_PROMPT = """你是 AILab 助手：既能像聊天助手一样回答问题，也能在隔离沙箱里动手完成任务（做 PPT、Excel、文档，处理文件，写代码运行）。
 
@@ -42,18 +43,6 @@ outputs 里没交付的文件在本轮结束时也会自动归档。
 """
 
 
-def _frontmatter(text: str) -> dict[str, str]:
-    if not text.startswith("---"):
-        return {}
-    head = text.split("---", 2)[1]
-    out = {}
-    for line in head.splitlines():
-        key, sep, value = line.partition(":")
-        if sep:
-            out[key.strip()] = value.strip()
-    return out
-
-
 @lru_cache
 def skills() -> dict[str, dict]:
     """name -> {"description", "path"} for every <skills_dir>/<name>/SKILL.md."""
@@ -62,9 +51,9 @@ def skills() -> dict[str, dict]:
         raise FileNotFoundError(f"skills directory not found at {root}; set AILAB_SKILLS_DIR")
     found = {}
     for skill_md in sorted(root.glob("*/SKILL.md")):
-        meta = _frontmatter(skill_md.read_text(encoding="utf-8"))
+        meta = frontmatter(skill_md.read_text(encoding="utf-8"))
         name = meta.get("name") or skill_md.parent.name
-        found[name] = {"description": meta.get("description", ""), "path": skill_md}
+        found[name] = {"title": meta.get("title") or name, "description": meta.get("description", ""), "path": skill_md}
     if not found:
         raise FileNotFoundError(f"no skills (*/SKILL.md) under {root}; set AILAB_SKILLS_DIR")
     return found
@@ -78,11 +67,11 @@ def load_skill(name: str) -> str:
 
 
 @lru_cache
-def system_prompt() -> str:
-    """The base prompt with the skill index. A missing skills directory fails loudly instead of silently
-    producing an agent that cannot build decks."""
-    index = "\n".join(f"- {name}：{s['description']}" for name, s in skills().items())
-    return BASE_PROMPT.replace("{skills}", index)
+def system_prompt(disabled: frozenset[str] = frozenset()) -> str:
+    """The base prompt with the index of the skills the user has switched on. A missing skills directory fails
+    loudly instead of silently producing an agent that cannot build decks."""
+    index = "\n".join(f"- {name}：{s['description']}" for name, s in skills().items() if name not in disabled)
+    return BASE_PROMPT.replace("{skills}", index or "（用户关闭了所有技能：需要做文件时，用沙箱里的 Python 库自己完成）")
 
 
 CHAT_MODE_NOTE = """
@@ -99,13 +88,39 @@ SKILL_NOTE = """
 {text}"""
 
 
-def system_prompt_for(mode: str = "work", skill: str | None = None) -> str:
-    """The system prompt for one run: chat mode drops the tools, a picked skill comes preloaded."""
+PERSONAL_NOTE = """
+
+# 个人技能
+用户自己上传到资料库里的技能，用法和上面的技能一样（先 load_skill 读说明）。技能附带的脚本和素材在
+/workspace/.ailab/skills/<技能名>/，读过说明后使用沙箱时会自动放进去：
+{index}"""
+
+
+def personal_header(name: str) -> str:
+    return f"（个人技能 {name}：附带的文件在 /workspace/.ailab/skills/{name}/，说明里的相对路径都以这个目录为准）\n\n"
+
+
+def system_prompt_for(
+    mode: str = "work",
+    skill: str | None = None,
+    disabled: frozenset[str] = frozenset(),
+    personal: list[dict] | None = None,
+    picked_text: str | None = None,
+) -> str:
+    """The system prompt for one run: chat mode drops the tools; the user's own skills are listed after the built-in
+    ones; a picked skill comes preloaded (picked_text for a personal one); switched-off skills are not mentioned."""
+    base = system_prompt(frozenset(disabled))
     if mode == "chat":
-        return system_prompt() + CHAT_MODE_NOTE
-    if skill:
-        return system_prompt() + SKILL_NOTE.format(name=skill, text=load_skill(skill))
-    return system_prompt()
+        return base + CHAT_MODE_NOTE
+    if personal:
+        base += PERSONAL_NOTE.format(
+            index="\n".join(f"- {s['name']}：{s.get('title') or s['name']}。{s.get('description', '')}" for s in personal)
+        )
+    if picked_text is not None:
+        return base + SKILL_NOTE.format(name=skill, text=picked_text)
+    if skill and skill not in disabled and skill in skills():
+        return base + SKILL_NOTE.format(name=skill, text=load_skill(skill))
+    return base
 
 
 def user_prompt(prompt: str, input_files: list[dict] | None = None) -> str:

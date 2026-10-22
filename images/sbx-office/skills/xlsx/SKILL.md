@@ -1,5 +1,6 @@
 ---
 name: xlsx
+title: 表格（Excel）
 description: 做 Excel 表格 / 报表 / 数据分析（.xlsx）：表头样式、数字格式、公式、合计行、原生图表；支持多轮修改
 ---
 

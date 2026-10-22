@@ -103,7 +103,7 @@ export function reduceEvent(items: Item[], event: EventItem): Item[] {
       break;
     }
     case "agent.skill":
-      note("已加载技能", SKILL_LABEL[p.name] || p.name, "ok");
+      note("已加载技能", p.title || SKILL_LABEL[p.name] || p.name, "ok");
       break;
     case "agent.attachments":
       for (const f of p.files || [])
@@ -227,7 +227,7 @@ export default function Turn({
         <div className="bubble">{run.prompt}</div>
         {run.options?.skill || run.options?.mode === "chat" ? (
           <div className="attach-row">
-            <span className="attach-chip">{run.options?.skill ? SKILL_LABEL[run.options.skill] || run.options.skill : "对话模式"}</span>
+            <span className="attach-chip">{run.options?.skill ? SKILL_LABEL[run.options.skill] || run.options.skill_title || run.options.skill : "对话模式"}</span>
           </div>
         ) : null}
         {run.input_files?.length ? (

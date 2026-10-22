@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import PurePath
 
+from .. import skillfiles
 from ..clients import PlatformClient
 from ..config import settings
 from ..storage import Storage
@@ -123,6 +124,13 @@ def _process_file(file_id: str, platform: PlatformClient, storage: Storage | Non
     else:
         info = extract(data, meta["filename"], meta.get("content_type") or "")
         text = info.pop("text", "")
+    skill: dict = {}
+    try:  # a personal skill (SKILL.md, or a zip with one): recognised here, listed on the 技能 page
+        found = skillfiles.inspect(data, meta["filename"])
+        if found:
+            skill = {"skill": found}
+    except skillfiles.SkillFileError as exc:
+        skill = {"skill_error": str(exc)}
     derived = {
         "file_id": file_id,
         "filename": meta["filename"],
@@ -145,6 +153,7 @@ def _process_file(file_id: str, platform: PlatformClient, storage: Storage | Non
             "derived_key": key,
             **({"text_key": derived["text_key"]} if text else {}),
             "excerpt": text[:300],
+            **skill,
         },
         status="ready",
     )

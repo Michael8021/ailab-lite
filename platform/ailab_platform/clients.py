@@ -181,6 +181,10 @@ class AsyncPlatformClient(_PlatformApi):
     async def record_usage(self, run_id: str, model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> None:
         await self._send(self._record_usage(run_id, model, prompt_tokens, completion_tokens, cached_tokens))
 
+    async def get_file_bytes(self, file_id: str) -> bytes:
+        """A personal skill's file. The agent only asks for ids the API listed in the run's personal_skills."""
+        return (await self._send(self._get_file_bytes(file_id))).content
+
 
 class AsyncBrokerClient(_Service):
     """Agent -> Broker: acquire a lease, run commands, move bytes, commit."""

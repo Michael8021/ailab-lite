@@ -52,6 +52,17 @@ Portal 的主界面是**对话**：左边对话列表，中间消息，右边预
   由它判断要不要动手（`runs.options.mode`）。
 - **技能按钮**（工作模式下）：「PPT 生成」「Excel 表格」「数据分析」。点了以后这条消息带 `skill`，Agent 把那份技能说明直接放进系统提示
   （不再等模型自己 `load_skill`），并明确要产出文件；只对这一条消息生效。API 校验技能名必须存在。
+- **技能**（侧栏「技能」，参照 Claude.ai 的 Customize > Skills）分两类：
+  - **通用技能**：随镜像发布（`images/sbx-office/skills/`），所有人可用。
+  - **个人技能**：用户自己的文件，就放在他的资料库里，只有他能看到和用。格式同 Claude 的技能：一个带 `name` / `description`（可选 `title`）
+    front matter 的 `SKILL.md`，或者 SKILL.md 连同脚本、素材打成的 `.zip`（SKILL.md 在根目录或唯一的文件夹里）。Worker 扫描上传文件时识别
+    （`skillfiles.py`：名字只能小写字母数字和 `-`；zip 拒绝绝对路径、`..`、符号链接，最多 200 个文件、解压后 30 MB），结果记在文件 meta；
+    认不出的显示原因；与通用技能重名、或有更新的同名文件时不启用。删掉资料库里的文件，技能就没了。
+  - 模型的系统提示里列出通用技能和"个人技能"两组，模型自己判断何时 `load_skill`；读个人技能时 Agent 从资料库取文件（只取 API 在 Run 里
+    列出的、属于这个用户的），把它的文件放进沙箱 `/workspace/.ailab/skills/<name>/`（不进工作区存档），脚本按相对路径运行。输入框里个人技能也有按钮。
+  - 每个技能一个开关，按用户存在 `users.settings.disabled_skills`。关掉的：系统提示里不出现、`load_skill` 被拒绝、输入框没有按钮、
+    消息指定它会被 API 拒绝。API：`GET /v1/skills`（`scope: builtin | personal`）、`PUT /v1/skills/{name}` `{enabled}`；
+    上传就是 `POST /v1/files`。管理员统一下发 / 禁用技能尚未实现。
 - **附件直接读**：Worker 解析上传文件时把全文存到 `derived/<file>/text.txt`；Agent 拿到的 Run 里每个附件带着抽取出的文字
   （单个最多 3 万字、合计 6 万字，超出的标明"只读了前 N 字"），放进用户消息。文本、PDF、Word、PPT、Excel 的总结和问答因此不用沙箱，
   对话模式下也能用；需要处理原文件（改表、画图）时，工作模式里文件仍在 `/workspace/inputs/`。改动前上传的文件只有 300 字摘录。

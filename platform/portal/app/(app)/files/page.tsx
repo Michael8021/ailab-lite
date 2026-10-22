@@ -139,6 +139,11 @@ export default function FilesPage() {
                     {extract?.slides ? ` · ${extract.slides} 张幻灯片` : ""}
                     {extract?.chars ? ` · ${extract.chars} 字符` : ""}
                   </div>
+                  {file.meta?.skill ? (
+                    <a className="chip skill-file-chip" href="/skills">
+                      个人技能 · {file.meta.skill.title}
+                    </a>
+                  ) : null}
                 </div>
                 <span className={`status ${st.cls}`}>{st.text}</span>
                 <div className="file-actions">

@@ -62,6 +62,8 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # per-user preferences, e.g. {"disabled_skills": ["pptx"]}
+    settings: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     tokens: Mapped[list[ApiToken]] = relationship(back_populates="user")
