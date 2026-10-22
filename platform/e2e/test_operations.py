@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 import uuid
 
@@ -55,8 +56,9 @@ def test_every_service_reports_its_own_metrics_after_a_run(stack) -> None:
     assert grew("broker", "ailab_sandbox_acquire_seconds_count")
     assert grew("broker", 'ailab_sandbox_exec_seconds_count{provider="mock"}')
     assert run_id not in after["api"] + after["agent"] + after["broker"], "ids must never become label values"
-    for service in ("api", "broker", "agent"):
-        assert "process_resident_memory_bytes" in after[service]
+    if sys.platform.startswith("linux"):  # the default process collector depends on /proc
+        for service in ("api", "broker", "agent"):
+            assert "process_resident_memory_bytes" in after[service]
 
 
 def test_the_worker_counts_the_files_it_scans(stack, tmp_path) -> None:

@@ -114,9 +114,10 @@ spec:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: 500m, memory: 384Mi}
           readinessProbe:
-            httpGet: {path: /healthz, port: 8080}
+            httpGet: {path: /readyz, port: 8080}
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
           livenessProbe:
             httpGet: {path: /healthz, port: 8080}
             initialDelaySeconds: 20
@@ -182,9 +183,10 @@ spec:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: 500m, memory: 384Mi}
           readinessProbe:
-            httpGet: {path: /healthz, port: 8081}
+            httpGet: {path: /readyz, port: 8081}
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim: {claimName: platform-data}
@@ -226,9 +228,10 @@ spec:
             requests: {cpu: 50m, memory: 96Mi}
             limits: {cpu: 300m, memory: 256Mi}
           readinessProbe:
-            httpGet: {path: /healthz, port: 8082}
+            httpGet: {path: /readyz, port: 8082}
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
       volumes:
         - name: models
           configMap: {name: platform-models}
@@ -272,9 +275,10 @@ spec:
             requests: {cpu: 50m, memory: 96Mi}
             limits: {cpu: 300m, memory: 256Mi}
           readinessProbe:
-            httpGet: {path: /healthz, port: 8083}
+            httpGet: {path: /readyz, port: 8083}
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim: {claimName: platform-data}

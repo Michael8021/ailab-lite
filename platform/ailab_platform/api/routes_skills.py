@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..agent.prompts import skills
 from ..deps import current_user, get_db
+from ..locks import user_critical_section
 from ..models import FileObject, FileStatus, User
 
 router = APIRouter(prefix="/v1/skills", tags=["skills"])
@@ -93,9 +94,11 @@ def toggle_skill(name: str, body: SkillToggle, user: User = Depends(current_user
     if name not in builtin and name not in personal:
         raise HTTPException(status_code=404, detail=f"unknown skill: {name}")
     known = set(builtin) | set(personal)
-    off = [s for s in disabled_skills(user) if s in known and s != name]
-    if not body.enabled:
-        off.append(name)
-    user.settings = {**(user.settings or {}), "disabled_skills": sorted(off)}  # a new dict: SQLAlchemy sees the change
-    db.commit()
+    with user_critical_section(db, user.id):
+        db.refresh(user)  # current_user was loaded before the lock: another request may have changed settings
+        off = [s for s in disabled_skills(user) if s in known and s != name]
+        if not body.enabled:
+            off.append(name)
+        user.settings = {**(user.settings or {}), "disabled_skills": sorted(off)}  # a new dict: SQLAlchemy sees the change
+        db.commit()
     return {"name": name, "enabled": body.enabled, "scope": "builtin" if name in builtin else "personal"}

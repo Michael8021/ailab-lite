@@ -113,6 +113,7 @@ class _StreamState:
         self.calls: dict[int, dict] = {}
         self.usage: dict = {}
         self.finish = "stop"
+        self.completed = False
         self.emitted = False  # some text already reached the user
 
     def feed(self, chunk: dict) -> tuple[str, str]:
@@ -136,7 +137,9 @@ class _StreamState:
                 fn = tc.get("function") or {}
                 acc["function"]["name"] += fn.get("name") or ""
                 acc["function"]["arguments"] += fn.get("arguments") or ""
-            self.finish = choice.get("finish_reason") or self.finish
+            if choice.get("finish_reason"):
+                self.finish = choice["finish_reason"]
+                self.completed = True
         return text, thinking
 
     def response(self) -> LLMResponse:
@@ -259,6 +262,7 @@ class OpenAICompatibleClient(LLMClient):
                                 if not line.startswith("data:") or line[5:].strip() == "":
                                     continue
                                 if line[5:].strip() == "[DONE]":
+                                    state.completed = True
                                     break
                                 text, thinking = state.feed(json.loads(line[5:]))
                                 if thinking and on_reasoning:
@@ -267,6 +271,8 @@ class OpenAICompatibleClient(LLMClient):
                                 if text and on_text:
                                     state.emitted = True
                                     await on_text(text)
+                            if not state.completed:
+                                raise LLMError("model stream is incomplete: ended without a completion marker")
                             return state.response()
                         body = (await resp.aread()).decode("utf-8", "replace")[:300]
                         if resp.status_code not in RETRYABLE_STATUS or last:

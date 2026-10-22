@@ -77,6 +77,7 @@ def _build_portal(workdir: Path) -> Path:
     """Build the Portal in a copy: the repo's tsconfig.json and any running Portal's .next stay untouched."""
     if not (PORTAL_SRC / "node_modules").is_dir():
         raise RuntimeError("platform/portal/node_modules is missing: run `npm ci` there first")
+    subprocess.run(["npm", "test"], cwd=PORTAL_SRC, check=True, capture_output=True, text=True, timeout=60)
     dst = workdir / "portal"
     dst.mkdir()
     # "middleware.ts" was renamed "proxy.ts" in Next 16; copy whichever exists

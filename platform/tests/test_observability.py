@@ -150,15 +150,18 @@ def test_metrics_endpoint_accepts_only_the_service_token(api) -> None:
 
 
 def test_metrics_expose_queue_depth_run_states_and_process_memory(api) -> None:
+    import sys
+
     api.post("/v1/runs", headers=AUTH, json={"prompt": "x", "model": "test-fast"})
     text = api.get("/metrics", headers=SERVICE).text
     for series in (
         'ailab_runs_in_state{status="queued"}',
         'ailab_queue_depth{queue="runs"}',
         'ailab_queue_depth{queue="files"}',
-        "process_resident_memory_bytes",
     ):
         assert series in text, series
+    if sys.platform.startswith("linux"):  # prometheus_client's default process collector reads /proc
+        assert "process_resident_memory_bytes" in text
     assert api.get("/metrics", headers=SERVICE).headers["content-type"].startswith("text/plain")
 
 

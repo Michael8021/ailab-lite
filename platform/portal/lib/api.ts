@@ -126,6 +126,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
   redirectIfUnauthorized(resp);
   if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
+  if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
 }
 
@@ -145,26 +146,31 @@ export async function streamRun(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx = buffer.indexOf("\n\n");
-    while (idx >= 0) {
-      const chunk = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const event = parseChunk(chunk);
-      if (event) {
-        if (event.type === "stream.end") {
-          onEnd?.();
-          return;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx = buffer.indexOf("\n\n");
+      while (idx >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const event = parseChunk(chunk);
+        if (event) {
+          if (event.type === "stream.end") {
+            onEnd?.();
+            return;
+          }
+          onEvent(event);
         }
-        onEvent(event);
+        idx = buffer.indexOf("\n\n");
       }
-      idx = buffer.indexOf("\n\n");
     }
+    onEnd?.();
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
-  onEnd?.();
 }
 
 function parseChunk(chunk: string): EventItem | null {

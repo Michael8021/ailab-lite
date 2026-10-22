@@ -21,7 +21,9 @@ from ..catalog import get_catalog
 from ..config import settings
 from ..deps import get_db, service_auth
 from ..events import append_event
+from ..locks import user_critical_section
 from ..models import Artifact, FileObject, FileStatus, ModelUsage, Run, RunStatus, User, new_id
+from ..quota import enforce_library_quota
 from ..run_state import InvalidTransition, transition_run
 from ..schemas import (
     ArtifactIn,
@@ -239,6 +241,12 @@ def internal_commit_artifact(body: ArtifactIn, db: Session = Depends(get_db)) ->
     database row is committed, so a failure in between can be retried.
     """
     run = _run_or_404(db, body.run_id)
+    with user_critical_section(db, run.user_id):
+        db.refresh(run)
+        return _commit_artifact(body, db, run)
+
+
+def _commit_artifact(body: ArtifactIn, db: Session, run: Run) -> dict:
     if not body.staging_key.startswith("staging/"):
         raise HTTPException(status_code=400, detail="staging_key must be under staging/")
     storage = get_storage()
@@ -262,6 +270,11 @@ def internal_commit_artifact(body: ArtifactIn, db: Session = Depends(get_db)) ->
     if existing is not None:
         storage.delete(body.staging_key)
         return _artifact_out(*existing)
+
+    try:
+        enforce_library_quota(db, run.user_id, body.size)
+    except HTTPException as exc:
+        raise reject(exc.status_code, exc.detail) from exc
 
     if not storage.exists(body.staging_key):
         raise HTTPException(status_code=409, detail="staging object not found")

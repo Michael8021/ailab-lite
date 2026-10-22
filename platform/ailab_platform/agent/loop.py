@@ -377,7 +377,8 @@ class AgentLoop:
         outcome = "error"  # replaced below once we know how the run ended
         turn = _Turn(run)
         final_summary = ""
-        total_tokens = 0
+        prior_usage = run.get("usage") or {}
+        total_tokens = prior_usage.get("prompt_tokens", 0) + prior_usage.get("completion_tokens", 0)
         finished = False
         error: str | None = None
         try:
@@ -429,6 +430,9 @@ class AgentLoop:
             for step in range(settings.max_agent_steps):
                 if await self._is_canceled(run_id):
                     raise RunCanceled()
+                if total_tokens >= settings.run_max_tokens:
+                    error = f"token limit reached ({total_tokens} >= {settings.run_max_tokens})"
+                    break
                 left = settings.max_agent_steps - step
                 if left == WRAP_UP_STEPS and settings.max_agent_steps > 2 * WRAP_UP_STEPS:
                     messages.append({"role": "user", "content": WRAP_UP_NOTE.format(n=left)})
@@ -442,6 +446,12 @@ class AgentLoop:
                 if response.content:
                     final_summary = response.content
                     await self._event(run_id, "agent.message", {"step": step, "content": response.content})
+
+                if total_tokens >= settings.run_max_tokens:
+                    error = f"token limit reached ({total_tokens} >= {settings.run_max_tokens})"
+                    break
+                if offered == [] and response.tool_calls:
+                    raise RuntimeError("model returned tool calls when tools are disabled for this turn")
 
                 if not response.tool_calls:
                     finished = True
@@ -472,9 +482,6 @@ class AgentLoop:
 
                 if finished:
                     break
-                if total_tokens > settings.run_max_tokens:
-                    error = f"token limit reached ({total_tokens} > {settings.run_max_tokens})"
-                    break
 
             if not finished and error is None:
                 # Out of steps: rather than ending on a bare error, let the model tell the user where things stand.
@@ -482,6 +489,8 @@ class AgentLoop:
                 messages.append({"role": "user", "content": OUT_OF_STEPS_NOTE})
                 response = await self._call_model(llm, run_id, run, model, messages, settings.max_agent_steps, tools=[])
                 await record(response)
+                if total_tokens >= settings.run_max_tokens:
+                    error = f"token limit reached ({total_tokens} >= {settings.run_max_tokens})"
                 if response.content:
                     final_summary = response.content
                     await self._event(run_id, "agent.message", {"step": settings.max_agent_steps, "content": response.content})
@@ -497,7 +506,7 @@ class AgentLoop:
             if turn.thinking:
                 text = "\n\n".join(turn.thinking)
                 result["thinking"] = {"text": text[-THINKING_KEEP_CHARS:], "seconds": round(turn.thinking_seconds, 1)}
-            if out_of_steps and not turn.artifacts:
+            if out_of_steps and not turn.artifacts and error is None:
                 error = f"agent exceeded {settings.max_agent_steps} steps"  # nothing to show for it: a failure
 
             if error is None:

@@ -165,7 +165,7 @@ def test_reasoning_is_stripped_unless_the_upstream_wants_it_back() -> None:
             return httpx.Response(
                 400, json={"error": {"message": "The `reasoning_content` in the thinking mode must be passed back to the API."}}
             )
-        return _ok()
+        return _sse({"choices": [{"delta": {"content": "hi"}, "finish_reason": "stop"}]}) if body.get("stream") else _ok()
 
     client, _ = _client(handler)
     assert asyncio.run(client.chat(history, [], "m")).content == "hi"

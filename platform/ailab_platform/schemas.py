@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
-class ORMModel(BaseModel):
+class UTCModel(BaseModel):
+    @field_serializer("*", when_used="json")
+    def serialize_utc(self, value):
+        # SQLite drops tzinfo on reads. All database timestamps are UTC, so expose that explicitly:
+        # browsers otherwise parse a naive ISO string in the visitor's local timezone.
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return value
+
+
+class ORMModel(UTCModel):
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -46,8 +56,18 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=1, max_length=1024)
 
 
-class RunCreate(BaseModel):
+class PromptRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("prompt")
+    @classmethod
+    def require_nonblank_prompt(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("prompt must contain non-whitespace characters")
+        return value
+
+
+class RunCreate(PromptRequest):
     title: str | None = Field(default=None, max_length=200)
     file_ids: list[str] = Field(default_factory=list)
     model: str | None = Field(default=None, max_length=120)
@@ -97,15 +117,14 @@ class ConversationPatch(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
-class MessageCreate(BaseModel):
-    prompt: str = Field(min_length=1, max_length=8000)
+class MessageCreate(PromptRequest):
     file_ids: list[str] = Field(default_factory=list)
     model: str | None = Field(default=None, max_length=120)
     mode: Literal["chat", "work"] = "work"
     skill: str | None = Field(default=None, max_length=40)
 
 
-class ConversationOut(BaseModel):
+class ConversationOut(UTCModel):
     id: str
     title: str
     model: str

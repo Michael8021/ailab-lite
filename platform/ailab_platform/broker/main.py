@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 
 from ..config import settings
 from ..deps import metrics_auth, service_auth
@@ -184,18 +185,23 @@ def healthz() -> dict:
 
 
 @app.get("/readyz")
-def readyz() -> dict:
+def readyz() -> Response:
     manager = get_manager()
     try:
         redis_ok = bool(manager.redis.ping())
     except Exception:
         redis_ok = False
-    return {
-        "ok": redis_ok and manager.provider.health(),
-        "redis": redis_ok,
-        "provider": manager.provider.name,
-        "provider_healthy": manager.provider.health(),
-    }
+    provider_ok = manager.provider.health()
+    ok = redis_ok and provider_ok
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={
+            "ok": ok,
+            "redis": redis_ok,
+            "provider": manager.provider.name,
+            "provider_healthy": provider_ok,
+        },
+    )
 
 
 @app.get("/metrics", include_in_schema=False, dependencies=[Depends(metrics_auth)])

@@ -147,7 +147,11 @@ class S3Storage(Storage):
         self.client.put_object(Bucket=self.bucket, Key=_safe_key(key), Body=io.BytesIO(data), ContentType=content_type)
 
     def get_bytes(self, key: str) -> bytes:
-        return self.client.get_object(Bucket=self.bucket, Key=_safe_key(key))["Body"].read()
+        body = self.client.get_object(Bucket=self.bucket, Key=_safe_key(key))["Body"]
+        try:
+            return body.read()
+        finally:
+            body.close()
 
     def put_file(self, key: str, path: str | Path, content_type: str = "application/octet-stream") -> None:
         self.client.upload_file(str(path), self.bucket, _safe_key(key), ExtraArgs={"ContentType": content_type})
@@ -157,7 +161,10 @@ class S3Storage(Storage):
 
     def stream(self, key: str, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
         body = self.client.get_object(Bucket=self.bucket, Key=_safe_key(key))["Body"]
-        yield from body.iter_chunks(chunk_size)
+        try:
+            yield from body.iter_chunks(chunk_size)
+        finally:
+            body.close()
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=_safe_key(key))

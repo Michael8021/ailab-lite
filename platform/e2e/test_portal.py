@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import time
 import uuid
 
 import httpx
@@ -447,6 +448,31 @@ def test_an_attachment_is_read_without_a_sandbox(logged_in, tmp_path) -> None:
     assert "我读到了 1 个附件的内容" in page.inner_text(".msg.assistant .md")
     _open_all_steps(page)
     assert "已读取附件" in page.inner_text(".steps") and "会议纪要.txt" in page.inner_text(".steps")
+
+
+def test_attachment_upload_and_scan_responses_cannot_race_with_send_or_remove(logged_in, tmp_path) -> None:
+    page = logged_in
+    pending = {}
+    page.route("**/api/v1/files", lambda route: pending.update(upload=route))
+    page.route("**/api/v1/files/deferred-file", lambda route: pending.update(scan=route))
+    note = tmp_path / "deferred.txt"
+    note.write_text("still uploading", encoding="utf-8")
+    page.fill("textarea", "请读取附件")
+    page.set_input_files(".composer-box input[type=file]", str(note))
+    page.wait_for_timeout(100)
+    assert page.get_by_role("button", name="发送", exact=True).is_disabled()
+    assert "upload" in pending
+    pending["upload"].fulfill(json={"id": "deferred-file", "filename": note.name, "status": "pending"})
+    page.wait_for_selector(".composer-box .attach-chip")
+    deadline = time.monotonic() + 10
+    while "scan" not in pending and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert "scan" in pending
+    page.get_by_role("button", name="移除 deferred.txt", exact=True).click()
+    pending["scan"].fulfill(json={"id": "deferred-file", "filename": note.name, "status": "ready"})
+    page.wait_for_timeout(200)
+    assert page.locator(".composer-box .attach-chip").count() == 0
+    assert page.get_by_role("button", name="发送", exact=True).is_enabled()
 
 
 def test_skills_can_be_switched_off_and_their_buttons_go_away(logged_in, stack) -> None:

@@ -57,17 +57,20 @@ def list_conversations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    convs = db.scalars(
-        select(Conversation)
+    last_status = (
+        select(Run.status)
+        .where(Run.conversation_id == Conversation.id)
+        .order_by(Run.created_at.desc(), Run.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    rows = db.execute(
+        select(Conversation, last_status)
         .where(Conversation.user_id == user.id, Conversation.deleted_at.is_(None))
         .order_by(Conversation.updated_at.desc())
         .limit(limit)
     ).all()
-    out = []
-    for conv in convs:
-        last = db.scalar(select(Run.status).where(Run.conversation_id == conv.id).order_by(Run.created_at.desc()).limit(1))
-        out.append(conversation_out(conv, last))
-    return out
+    return [conversation_out(conv, last) for conv, last in rows]
 
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)

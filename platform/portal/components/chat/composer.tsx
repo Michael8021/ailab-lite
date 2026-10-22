@@ -46,6 +46,7 @@ export default function Composer({
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [mode, setModeState] = useState<Mode>("work");
   const [picked, setPicked] = useState<SkillButton | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
@@ -87,34 +88,45 @@ export default function Composer({
   // uploads are quarantined until the Worker has scanned them
   useEffect(() => {
     if (!files.some((f) => f.status === "pending")) return;
+    let stale = false;
     const timer = setInterval(async () => {
       const fresh = await Promise.all(
         files.map((f) => (f.status === "pending" ? api<FileItem>(`/v1/files/${f.id}`).then((x) => ({ ...f, status: x.status })).catch(() => f) : f))
       );
-      setFiles(fresh);
+      if (!stale) setFiles((current) => current.map((f) => fresh.find((x) => x.id === f.id) || f));
     }, 1500);
-    return () => clearInterval(timer);
+    return () => {
+      stale = true;
+      clearInterval(timer);
+    };
   }, [files]);
 
   async function upload(list: FileList) {
     setError("");
-    for (const file of Array.from(list)) {
-      const form = new FormData();
-      form.append("upload", file);
-      const resp = await fetch(`${API_BASE}/v1/files`, { method: "POST", body: form });
-      redirectIfUnauthorized(resp);
-      if (!resp.ok) {
-        setError(`${file.name}：上传失败（${resp.status}）`);
-        continue;
+    setUploading(true);
+    try {
+      for (const file of Array.from(list)) {
+        const form = new FormData();
+        form.append("upload", file);
+        const resp = await fetch(`${API_BASE}/v1/files`, { method: "POST", body: form });
+        redirectIfUnauthorized(resp);
+        if (!resp.ok) {
+          setError(`${file.name}：上传失败（${resp.status}）`);
+          continue;
+        }
+        const item: FileItem = await resp.json();
+        setFiles((prev) => [...prev, { id: item.id, filename: item.filename, status: item.status }]);
       }
-      const item: FileItem = await resp.json();
-      setFiles((prev) => [...prev, { id: item.id, filename: item.filename, status: item.status }]);
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setUploading(false);
+      if (picker.current) picker.current.value = "";
     }
-    if (picker.current) picker.current.value = "";
   }
 
   const waiting = files.some((f) => f.status === "pending");
-  const canSend = !!text.trim() && !busy && !running && !waiting && !!model;
+  const canSend = !!text.trim() && !busy && !running && !waiting && !uploading && !!model;
 
   async function send() {
     if (!canSend) return;
@@ -172,7 +184,7 @@ export default function Composer({
         }}
       />
       <div className="composer-tools">
-        <button className="icon-btn plus" onClick={() => picker.current?.click()} title="添加附件" aria-label="添加附件">
+        <button className="icon-btn plus" disabled={uploading} onClick={() => picker.current?.click()} title="添加附件" aria-label="添加附件">
           ＋
         </button>
         <div className="mode-toggle" role="radiogroup" aria-label="模式">

@@ -198,13 +198,17 @@ def test_token_limit_stops_the_run_but_keeps_the_work(monkeypatch) -> None:
     broker = RichBroker(outputs=[{"path": "/workspace/outputs/partial.md", "size": 3}])
     step = ToolCall(id="c", name="list_files", arguments={"path": "/workspace"})
     llm = ScriptedLLM(
-        [LLMResponse(tool_calls=[step], usage={"prompt_tokens": 90, "completion_tokens": 20}), LLMResponse(content="never reached")]
+        [
+            LLMResponse(tool_calls=[step], usage={"prompt_tokens": 50, "completion_tokens": 20}),
+            LLMResponse(content="over budget", usage={"prompt_tokens": 30, "completion_tokens": 20}),
+            LLMResponse(content="never reached"),
+        ]
     )
     platform, _ = _run(llm, broker=broker)
     status, kw = platform.statuses[-1][0], platform.statuses[-1][1]
     assert status == "failed" and "token limit" in kw["error"]
     assert broker.commits == ["/workspace/outputs/partial.md"]
-    assert len(llm.responses) == 1  # the second model call was never made
+    assert len(llm.responses) == 1  # no further model call once the budget was consumed
 
 
 def test_run_waits_for_a_free_sandbox(monkeypatch) -> None:

@@ -41,7 +41,8 @@ def safe_filename(filename: str) -> str:
 
 
 def content_disposition(filename: str) -> str:
-    ascii_name = filename.encode("ascii", "ignore").decode() or "download"
+    ascii_name = "".join(c for c in filename if 32 <= ord(c) < 127) or "download"
+    ascii_name = ascii_name.replace("\\", "\\\\").replace('"', '\\"')
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
@@ -163,7 +164,7 @@ def delete_file(file_id: str, user: User = Depends(current_user), db: Session = 
     if newer:
         raise HTTPException(status_code=409, detail="file has newer versions; delete those first")
     db.execute(delete(Artifact).where(Artifact.file_id == file.id))
-    keys = [file.storage_key, (file.meta or {}).get("derived_key")]
+    keys = [file.storage_key, (file.meta or {}).get("derived_key"), (file.meta or {}).get("text_key")]
     db.delete(file)
     db.commit()
     storage = get_storage()
@@ -203,33 +204,49 @@ def presign_upload(body: PresignIn, user: User = Depends(current_user), db: Sess
 
 @router.post("/{file_id}/complete", response_model=FileOut)
 def complete_upload(file_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    file = _owned_file(db, file_id, user)
-    if (file.meta or {}).get("processing") != "awaiting_upload":
-        raise HTTPException(status_code=409, detail=f"file already {file.status}")
     storage = get_storage()
-    if not storage.exists(file.storage_key):
-        raise HTTPException(status_code=409, detail="object not uploaded yet")
-    size = storage.size(file.storage_key)
-    if size > settings.max_upload_bytes:
-        storage.delete(file.storage_key)
-        db.delete(file)
-        db.commit()
-        raise HTTPException(status_code=413, detail=f"file exceeds {settings.max_upload_bytes} bytes")
-    try:
-        enforce_library_quota(db, user.id, size)
-    except HTTPException:
-        storage.delete(file.storage_key)
-        db.delete(file)
-        db.commit()
-        raise
-    digest = hashlib.sha256()
-    for chunk in storage.stream(file.storage_key):
-        digest.update(chunk)
-    file.size = size
-    file.sha256 = digest.hexdigest()
-    file.meta = {"processing": "queued"}
-    db.commit()
-    db.refresh(file)
+    with user_critical_section(db, user.id):
+        file = _owned_file(db, file_id, user)
+        db.refresh(file)  # a simultaneous completion may have finished while we waited for the lock
+        if (file.meta or {}).get("processing") != "awaiting_upload":
+            raise HTTPException(status_code=409, detail=f"file already {file.status}")
+        signed_key = file.storage_key
+        if not storage.exists(signed_key):
+            raise HTTPException(status_code=409, detail="object not uploaded yet")
+        # A signed PUT is reusable until it expires. Freeze a separate object BEFORE hashing/scanning:
+        # replacing the signed object later must never replace the bytes the Worker approved.
+        final_key = f"uploads/{user.id}/{file.id}/{new_id('obj')}/{file.filename}"
+        try:
+            storage.copy(signed_key, final_key)
+            size = storage.size(final_key)
+            if size == 0:
+                raise HTTPException(status_code=400, detail="empty file")
+            if size > settings.max_upload_bytes:
+                raise HTTPException(status_code=413, detail=f"file exceeds {settings.max_upload_bytes} bytes")
+            enforce_library_quota(db, user.id, size)
+            digest = hashlib.sha256()
+            for chunk in storage.stream(final_key):
+                digest.update(chunk)
+            file.storage_key = final_key
+            file.size = size
+            file.sha256 = digest.hexdigest()
+            file.meta = {"processing": "queued"}
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            storage.delete(final_key)
+            if isinstance(exc, HTTPException) and exc.status_code in (400, 413):
+                # Invalid/over-quota uploads are terminal rejections, as with multipart uploads. Do not
+                # retain an unaccounted object simply because no FileObject.size was committed for it.
+                storage.delete(signed_key)
+                db.delete(file)
+                db.commit()
+            raise
+        # The DB now references only the frozen copy. Cleanup failure must not undo an accepted upload.
+        try:
+            storage.delete(signed_key)
+        except Exception:
+            log.warning("could not delete completed upload object %s", signed_key, exc_info=True)
     try:
         get_queue().enqueue(settings.file_queue, {"file_id": file.id})
     except Exception:

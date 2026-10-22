@@ -249,7 +249,10 @@ build_images() {
   local id; id=$(docker image inspect "$PLATFORM_IMAGE" --format '{{.Id}}'); id=${id#sha256:}
   docker save "$PLATFORM_IMAGE" | nice -n 19 k3s ctr -n k8s.io images import - >/dev/null
   # `docker save` can silently produce a broken archive, so check that k3s really holds this exact image
-  k3s ctr -n k8s.io images ls | grep "$PLATFORM_IMAGE" | grep -q "$id" || die "imported image does not match the one just built (${id:0:12}); not deploying a stale or broken image"
+  # ctr images ls reports the manifest digest; Docker's .Id is the configuration digest. CRI exposes that
+  # same configuration id, so compare like with like instead of rejecting every valid import.
+  local imported; imported=$(k3s crictl inspecti "$PLATFORM_IMAGE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["id"])')
+  [ "$imported" = "sha256:$id" ] || die "imported image does not match the one just built (${id:0:12}); not deploying a stale or broken image"
   ok "built and imported (${id:0:12})"
 }
 
@@ -293,7 +296,7 @@ deploy_platform() {
 
   step "deploying to k3s"
   local was_deployed=0; k get deploy platform-api >/dev/null 2>&1 && was_deployed=1
-  local applied; applied=$(run $KUBECTL apply -f "$PLATFORM/deploy/k8s/platform.yaml" || true)
+  local applied; applied=$(run $KUBECTL apply -f "$PLATFORM/deploy/k8s/platform.yaml") || die "could not apply the platform manifest"
   printf '%s\n' "$applied" | grep -v unchanged | sed 's/^/    /' || true
   if [ "$was_deployed" = 1 ]; then
     # Same image tag: restart to pick up new code/config - but only what apply left unchanged. Restarting a

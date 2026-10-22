@@ -42,27 +42,34 @@ export default function Chat({ id }: { id: string | null }) {
   const [streaming, setStreaming] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
+  const loadSeq = useRef(0);
+  const streamController = useRef<AbortController | null>(null);
 
   const loadDetail = useCallback(async () => {
     if (!id) return null;
+    const seq = ++loadSeq.current;
     try {
       const d = await api<ConversationDetail>(`/v1/conversations/${id}`);
+      if (seq !== loadSeq.current) return null;
       setDetail(d);
       return d;
     } catch (err: any) {
-      setError(String(err?.message || err));
+      if (seq === loadSeq.current) setError(String(err?.message || err));
       return null;
     }
   }, [id]);
 
   const follow = useCallback(
     (run: Run) => {
+      streamController.current?.abort();
       const controller = new AbortController();
+      streamController.current = controller;
       setStreaming(run.id);
       setItems((prev) => ({ ...prev, [run.id]: prev[run.id] || [] }));
       streamRun(
         run.id,
         (event) => {
+          if (controller.signal.aborted) return;
           setItems((prev) => ({ ...prev, [run.id]: reduceEvent(prev[run.id] || [], event) }));
           if (event.type === "preview.updated") {
             const p: Preview = { ...event.payload, run_id: run.id };
@@ -74,11 +81,18 @@ export default function Chat({ id }: { id: string | null }) {
         },
         controller.signal,
         () => {
+          if (controller.signal.aborted) return;
           setStreaming(null);
           loadDetail();
           conversationsChanged();
         }
-      ).catch(() => setStreaming(null));
+      ).catch((err) => {
+        if (!controller.signal.aborted) {
+          setStreaming(null);
+          setError(String(err?.message || err));
+          loadDetail();
+        }
+      });
       return controller;
     },
     [loadDetail]
@@ -87,12 +101,19 @@ export default function Chat({ id }: { id: string | null }) {
   // open a conversation: load it, and follow its last turn if that is still being answered
   useEffect(() => {
     if (!id) return;
+    let disposed = false;
     let controller: AbortController | null = null;
     loadDetail().then((d) => {
+      if (disposed) return;
       const last = d?.turns[d.turns.length - 1];
       if (last && !isTerminal(last.status)) controller = follow(last);
     });
-    return () => controller?.abort();
+    return () => {
+      disposed = true;
+      ++loadSeq.current;
+      controller?.abort();
+      streamController.current?.abort();
+    };
   }, [id, loadDetail, follow]);
 
   // keep the newest message in view while it streams, unless the user scrolled up to read

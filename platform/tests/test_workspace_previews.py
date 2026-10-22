@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 
 from openpyxl import Workbook
 
@@ -92,7 +93,11 @@ def test_previews_are_rendered_once_per_change(tmp_path) -> None:
 
 
 def test_a_preview_that_cannot_be_rendered_is_reported_not_retried(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")  # whatever the host has, make sure LibreOffice is not on the path
+    # Keep the GNU find selected by the test environment (on macOS it is outside /usr/bin), while excluding LibreOffice.
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "find").symlink_to(shutil.which("find"))
+    monkeypatch.setenv("PATH", f"{tools}:/usr/bin:/bin")
     manager, _, _ = _manager(tmp_path)
     lease = manager.create("run_e")["lease_id"]
     manager.put_file(lease, "/workspace/outputs/deck.pptx", b"not really a deck")

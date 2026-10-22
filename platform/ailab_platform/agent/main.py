@@ -10,6 +10,7 @@ import socket
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Response
+from fastapi.responses import JSONResponse
 
 from ..catalog import get_catalog
 from ..clients import AsyncPlatformClient
@@ -185,12 +186,14 @@ def healthz() -> dict:
 
 
 @app.get("/readyz")
-def readyz() -> dict:
+def readyz() -> Response:
     try:
         queue_ok = get_queue().ping()
     except Exception:
         queue_ok = False
-    return {"ok": queue_ok, "queue": queue_ok, "consumer_running": bool(_task and not _task.done())}
+    running = bool(_task and not _task.done())
+    ok = queue_ok and running
+    return JSONResponse(status_code=200 if ok else 503, content={"ok": ok, "queue": queue_ok, "consumer_running": running})
 
 
 @app.get("/metrics", include_in_schema=False, dependencies=[Depends(metrics_auth)])
