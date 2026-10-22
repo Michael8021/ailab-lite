@@ -176,6 +176,14 @@ export default function Chat({ id }: { id: string | null }) {
   }, [detail]);
 
   const modelName = (m: string) => models.find((x) => x.id === m)?.name || m;
+  const ext = (name: string) => name.split(".").pop()?.toLowerCase() || "";
+  // Previews are keyed by the file's name in the sandbox; deliver_file may have given it another name.
+  // Then the one preview of the same kind that this turn rendered is the delivered file's.
+  const previewKey = (run: Run, filename: string): string | null => {
+    if (previews.some((p) => p.filename === filename)) return filename;
+    const own = (run.result?.previews || []).filter((p) => ext(p.filename) === ext(filename));
+    return own.length === 1 && previews.some((p) => p.filename === own[0].filename) ? own[0].filename : null;
+  };
   const turns = detail?.turns || [];
   const running = turns.some((t) => !isTerminal(t.status));
 
@@ -273,7 +281,7 @@ export default function Chat({ id }: { id: string | null }) {
                     items={items[t.id]}
                     live={streaming === t.id}
                     modelName={modelName}
-                    previewable={new Set(previews.map((p) => p.filename))}
+                    previewKey={previewKey}
                     onPreview={(f) => {
                       setSelected(f);
                       setPaneOpen(true);

@@ -119,3 +119,29 @@ def test_duplicate_message_for_a_run_in_progress_is_dropped(env) -> None:
     assert loop.calls == []
     assert q.outstanding(settings.run_queue) == []
     assert q.is_locked(run_lock_key("run_1"))  # and we did not steal its lock
+
+
+def test_sigterm_cancels_the_consumer_at_once_and_keeps_uvicorns_handler(monkeypatch) -> None:
+    import signal as _signal
+
+    from ailab_platform.agent import main as agent_main
+
+    calls = []
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        task = asyncio.create_task(asyncio.sleep(3600))
+        monkeypatch.setattr(agent_main, "_task", task)
+        previous = _signal.getsignal(_signal.SIGTERM)
+        _signal.signal(_signal.SIGTERM, lambda s, f: calls.append("uvicorn"))
+        try:
+            agent_main._chain_sigterm(loop)
+            _signal.getsignal(_signal.SIGTERM)(_signal.SIGTERM, None)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert task.cancelled()
+        finally:
+            _signal.signal(_signal.SIGTERM, previous)
+
+    asyncio.run(scenario())
+    assert calls == ["uvicorn"]

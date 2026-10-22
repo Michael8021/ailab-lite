@@ -126,6 +126,9 @@ def sheets(src: Path, out: Path) -> dict:
                         item["f"] = sc.value[:200]
                     row.append(item)
                 rows.append(row)
+            # charts and formatting stretch max_row far past the data: drop the empty tail
+            while rows and not any(c["v"] or c.get("bg") for c in rows[-1]):
+                rows.pop()
             widths = []
             for c in range(1, ncols + 1):
                 from openpyxl.utils import get_column_letter

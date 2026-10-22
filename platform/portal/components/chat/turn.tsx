@@ -48,11 +48,23 @@ export function reduceEvent(items: Item[], event: EventItem): Item[] {
   const p = event.payload || {};
   const next = items.map((it) => (it.kind === "steps" ? { kind: "steps" as const, steps: [...it.steps] } : { ...it }));
   // anything else the model does means it has stopped thinking
-  if (event.type !== "agent.thinking") for (const it of next) if (it.kind === "thinking") it.done = true;
+  if (event.type !== "agent.thinking")
+    for (const it of next) {
+      if (it.kind === "thinking") it.done = true;
+      if (it.kind === "steps") for (const s of it.steps) if (s.name === "thinking" && s.status === "running") s.status = "note";
+    }
   const note = (label: string, detail?: string, status: Step["status"] = "note") => lastSteps(next).push({ name: event.type, label, detail, status });
   switch (event.type) {
     case "agent.thinking": {
       const last = next[next.length - 1];
+      if (last && last.kind === "steps") {
+        // thinking between tool calls belongs to the work: one entry in the steps, not a block of its own
+        const prev = last.steps[last.steps.length - 1];
+        if (prev && prev.name === "thinking" && prev.status === "running") prev.output = (prev.output || "") + (p.text || "");
+        else last.steps.push({ name: "thinking", label: "思考", status: "running", output: p.text || "" });
+        last.steps[last.steps.length - 1].detail = `${Math.max(1, Math.round(p.seconds || 0))} 秒`;
+        break;
+      }
       if (last && last.kind === "thinking" && last.step === p.step) {
         last.text += p.text || "";
         last.seconds = p.seconds ?? last.seconds;
@@ -150,9 +162,9 @@ function Steps({ steps, open: openByDefault }: { steps: Step[]; open: boolean })
               <div className="step-body">
                 <span className="step-label">{s.label}</span>
                 {s.detail ? <span className="step-detail">{s.detail}</span> : null}
-                {s.output && s.status !== "running" ? (
+                {s.output && (s.status !== "running" || s.name === "thinking") ? (
                   <details>
-                    <summary>输出</summary>
+                    <summary>{s.name === "thinking" ? "思考内容" : "输出"}</summary>
                     <pre className="log">{s.output}</pre>
                   </details>
                 ) : null}
@@ -170,14 +182,14 @@ export default function Turn({
   items,
   live,
   modelName,
-  previewable,
+  previewKey,
   onPreview,
 }: {
   run: Run;
   items: Item[] | undefined;
   live: boolean;
   modelName: (id: string) => string;
-  previewable: Set<string>;
+  previewKey: (run: Run, filename: string) => string | null;
   onPreview: (filename: string) => void;
 }) {
   const [history, setHistory] = useState<Item[] | null>(null);
@@ -251,8 +263,8 @@ export default function Turn({
                     </div>
                     <div className="meta">{formatBytes(a.size)}</div>
                   </div>
-                  {PREVIEWABLE.test(a.filename) && previewable.has(a.filename) ? (
-                    <button className="secondary sm" onClick={() => onPreview(a.filename)}>
+                  {PREVIEWABLE.test(a.filename) && previewKey(run, a.filename) ? (
+                    <button className="secondary sm" onClick={() => onPreview(previewKey(run, a.filename)!)}>
                       预览
                     </button>
                   ) : null}
