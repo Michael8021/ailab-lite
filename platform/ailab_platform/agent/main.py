@@ -41,6 +41,14 @@ def visibility_seconds() -> int:
 
 async def handle_message(loop: AgentLoop, queue, msg: Message) -> None:
     """Process one run message. On shutdown (CancelledError) the run is handed back to the queue."""
+    platform = AsyncPlatformClient()  # holds a connection pool now: close it with the message
+    try:
+        await _handle_message(loop, queue, msg, platform)
+    finally:
+        await platform.aclose()
+
+
+async def _handle_message(loop: AgentLoop, queue, msg: Message, platform) -> None:
     run_id = msg.payload.get("run_id")
     if not run_id:
         log.warning("dropping malformed run message: %s", msg.payload)
@@ -49,7 +57,6 @@ async def handle_message(loop: AgentLoop, queue, msg: Message) -> None:
 
     # A message re-queued at shutdown starts a fresh delivery count, so it carries its own.
     attempt = max(msg.deliveries, int(msg.payload.get("attempt", 1)))
-    platform = AsyncPlatformClient()
     if attempt > settings.run_max_attempts:
         log.error("run %s attempted %d times; giving up", run_id, attempt)
         try:

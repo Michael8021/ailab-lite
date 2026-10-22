@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,6 +23,20 @@ class _Bridge:
 
     def __call__(self, **_kwargs):
         return self
+
+    def request(self, method, url, **_kwargs):
+        parsed = urlsplit(url)
+        path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        return self._c.request(
+            method,
+            path,
+            headers=_kwargs.get("headers"),
+            content=_kwargs.get("content"),
+            json=_kwargs.get("json"),
+        )
+
+    def close(self):
+        pass
 
     def __enter__(self):
         return self._c

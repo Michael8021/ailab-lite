@@ -30,6 +30,9 @@ def test_worker_message_handling(monkeypatch) -> None:
         def patch_file(self, file_id, meta=None, status=None):
             patched.append((file_id, meta, status))
 
+        def close(self):
+            pass
+
     monkeypatch.setattr(worker_main, "PlatformClient", FakePlatform)
     q = InMemoryQueue()
 

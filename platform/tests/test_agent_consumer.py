@@ -14,6 +14,9 @@ from ailab_platform.queue import InMemoryQueue, run_lock_key
 class FakePlatform:
     statuses: list[tuple[str, str, dict]] = []
 
+    async def aclose(self):
+        pass
+
     async def set_run_status(self, run_id, status, **kw):
         FakePlatform.statuses.append((run_id, status, kw))
         return {}

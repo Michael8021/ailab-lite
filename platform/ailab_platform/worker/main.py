@@ -39,11 +39,19 @@ def handle_message(queue, msg) -> None:
         request_id_var.reset(rid)
 
 
+def _patch(file_id: str, **kw) -> None:
+    client = PlatformClient()
+    try:
+        client.patch_file(file_id, **kw)
+    finally:
+        client.close()
+
+
 def _handle(queue, msg, file_id) -> None:
     if file_id and msg.deliveries > settings.file_max_attempts:
         log.error("file %s could not be scanned after %d attempts; rejecting it", file_id, msg.deliveries - 1)
         try:
-            PlatformClient().patch_file(
+            _patch(
                 file_id,
                 meta={"processing": "error", "scan": {"ok": False, "reason": "scan failed repeatedly"}},
                 status="rejected",
@@ -67,7 +75,7 @@ def _handle(queue, msg, file_id) -> None:
             log.exception("file %s processing failed", file_id)
             metrics.FILES.labels("error").inc()
             try:
-                PlatformClient().patch_file(file_id, meta={"processing": "error"})
+                _patch(file_id, meta={"processing": "error"})
             except Exception:
                 log.warning("could not flag file %s as errored", file_id, exc_info=True)
             return

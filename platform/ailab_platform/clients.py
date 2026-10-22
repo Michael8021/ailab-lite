@@ -14,6 +14,10 @@ import httpx
 from .config import settings
 from .obs import NO_REQUEST, REQUEST_ID_HEADER, request_id_var
 
+# One client per process, not one per call: a Run makes 15-25 internal calls and
+# 200 concurrent runs would otherwise build thousands of connection pools.
+_LIMITS = httpx.Limits(max_connections=64, max_keepalive_connections=32, keepalive_expiry=30.0)
+
 
 class ClientError(RuntimeError):
     def __init__(self, method: str, url: str, status: int, body: str):
@@ -98,11 +102,23 @@ class _PlatformApi(_Service):
 class PlatformClient(_PlatformApi):
     """Synchronous internal-API client (Broker / Worker)."""
 
+    def __init__(self, base_url: str | None = None, token: str | None = None):
+        super().__init__(base_url, token)
+        self._http = httpx.Client(timeout=30, limits=_LIMITS)
+
     def _send(self, req: Request) -> httpx.Response:
-        with httpx.Client(timeout=req.timeout) as c:
-            r = c.request(req.method, req.url, **req.kwargs)
+        r = self._http.request(req.method, req.url, timeout=req.timeout, **req.kwargs)
         _raise(req.method, req.url, r)
         return r
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> PlatformClient:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def get_run(self, run_id: str) -> dict:
         return self._send(self._get_run(run_id)).json()
@@ -132,11 +148,23 @@ class PlatformClient(_PlatformApi):
 class AsyncPlatformClient(_PlatformApi):
     """Asynchronous internal-API client (Agent)."""
 
+    def __init__(self, base_url: str | None = None, token: str | None = None):
+        super().__init__(base_url, token)
+        self._http = httpx.AsyncClient(timeout=30, limits=_LIMITS)
+
     async def _send(self, req: Request) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=req.timeout) as c:
-            r = await c.request(req.method, req.url, **req.kwargs)
+        r = await self._http.request(req.method, req.url, timeout=req.timeout, **req.kwargs)
         _raise(req.method, req.url, r)
         return r
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def __aenter__(self) -> AsyncPlatformClient:
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.aclose()
 
     async def get_run(self, run_id: str) -> dict:
         return (await self._send(self._get_run(run_id))).json()
@@ -157,15 +185,30 @@ class AsyncPlatformClient(_PlatformApi):
 class AsyncBrokerClient(_Service):
     """Agent -> Broker: acquire a lease, run commands, move bytes, commit."""
 
+    def __init__(self, base_url: str | None = None, token: str | None = None):
+        super().__init__(base_url, token)
+        self._http = httpx.AsyncClient(timeout=30, limits=_LIMITS)
+
     @property
     def default_base_url(self) -> str:  # type: ignore[override]
         return settings.broker_base_url
 
+    async def _raw(self, req: Request) -> httpx.Response:
+        return await self._http.request(req.method, req.url, timeout=req.timeout, **req.kwargs)
+
     async def _send(self, req: Request) -> httpx.Response:
-        async with httpx.AsyncClient(timeout=req.timeout) as c:
-            r = await c.request(req.method, req.url, **req.kwargs)
+        r = await self._raw(req)
         _raise(req.method, req.url, r)
         return r
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def __aenter__(self) -> AsyncBrokerClient:
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.aclose()
 
     async def create_lease(self, run_id: str, ttl_seconds: int | None = None, image: str | None = None) -> dict:
         # The Broker learns the run's input files from the API, not from us.
@@ -204,8 +247,7 @@ class AsyncBrokerClient(_Service):
 
     async def release(self, lease_id: str) -> None:
         req = self._req("DELETE", f"/internal/leases/{lease_id}", timeout=60)
-        async with httpx.AsyncClient(timeout=req.timeout) as c:
-            r = await c.request(req.method, req.url, **req.kwargs)
+        r = await self._raw(req)
         if r.status_code not in (200, 204, 404):
             _raise(req.method, req.url, r)
 

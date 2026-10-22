@@ -94,7 +94,13 @@ def extract(data: bytes, filename: str, content_type: str) -> dict:
 
 
 def process_file(file_id: str, platform: PlatformClient | None = None, storage: Storage | None = None) -> dict:
-    platform = platform or PlatformClient()
+    if platform is not None:
+        return _process_file(file_id, platform, storage)
+    with PlatformClient() as owned:  # holds a connection pool: close it with the file
+        return _process_file(file_id, owned, storage)
+
+
+def _process_file(file_id: str, platform: PlatformClient, storage: Storage | None) -> dict:
     from ..storage import get_storage
 
     storage = storage or get_storage()
