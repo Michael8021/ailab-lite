@@ -21,19 +21,23 @@ pytestmark = pytest.mark.e2e
 EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 
-def _submit_task(page, prompt: str, model: str) -> str:
+def _send(page, prompt: str, model: str | None = None) -> None:
     page.wait_for_selector("select option", state="attached")
-    page.select_option("select", model)
+    if model:
+        page.select_option("select", model)
     page.fill("textarea", prompt)
-    page.click("button:has-text('提交任务')")
-    page.wait_for_url(re.compile(r"/runs/run_"), timeout=15000)
+    page.keyboard.press("Enter")
+
+
+def _start_conversation(page, prompt: str, model: str = "test-fast") -> str:
+    _send(page, prompt, model)
+    page.wait_for_url(re.compile(r"/c/cnv_"), timeout=15000)
     return page.url.rsplit("/", 1)[-1]
 
 
-def _wait_for_run_end(page, seconds: int = 90) -> None:
-    page.wait_for_function(
-        "() => document.body.innerText.includes('run.completed') || document.body.innerText.includes('run.failed')", timeout=seconds * 1000
-    )
+def _wait_for_turns(page, count: int, seconds: int = 90) -> None:
+    """Until `count` turns have finished (each finished turn shows its meta line)."""
+    page.wait_for_function("(n) => document.querySelectorAll('.turn-meta').length >= n", arg=count, timeout=seconds * 1000)
 
 
 # ------------------------------------------------------------------------------------------ access
@@ -170,19 +174,80 @@ def test_the_workbench_offers_the_platforms_models_and_the_quota(logged_in) -> N
     assert "deepseek" not in page.content().lower()
 
 
+def test_a_plain_question_is_answered_without_a_sandbox(logged_in, stack) -> None:
+    page = logged_in
+    conv = _start_conversation(page, "你好，介绍一下你自己")
+    _wait_for_turns(page, 1)
+    answer = page.inner_text(".msg.assistant .md")
+    assert "离线演示模型" in answer and "本对话第 1 轮" in answer
+    assert page.locator(".msg.assistant strong").count() >= 1  # markdown rendered, not shown as **raw**
+    assert page.locator(".steps").count() == 0  # no tools, no sandbox
+    page.wait_for_selector(f".conv-item.on a[href='/c/{conv}']")
+
+
+def test_a_conversation_continues_with_its_history(logged_in) -> None:
+    page = logged_in
+    _start_conversation(page, "第一个问题")
+    _wait_for_turns(page, 1)
+    _send(page, "第二个问题")
+    _wait_for_turns(page, 2)
+    page.wait_for_function("() => document.querySelectorAll('.msg.assistant .md').length >= 2", timeout=15000)
+    answers = page.locator(".msg.assistant .md").all_inner_texts()
+    assert "本对话第 2 轮" in answers[-1]
+    assert page.locator(".msg.user .bubble").all_inner_texts() == ["第一个问题", "第二个问题"]
+    page.reload()  # history comes back from the server
+    page.wait_for_selector(".turn-meta")
+    assert page.locator(".msg.user .bubble").count() == 2
+
+
 def test_a_task_runs_to_completion_and_its_timeline_streams_in(logged_in) -> None:
     page = logged_in
-    _submit_task(page, "你好，在沙箱里执行一条命令", "test-fast")
-    _wait_for_run_end(page)
+    _start_conversation(page, "你好，在沙箱里执行一条命令")
+    _wait_for_turns(page, 1)
+    page.click(".steps-head")
+    assert "运行命令" in page.inner_text(".steps")
+    with page.expect_navigation():
+        page.click(".turn-meta a:has-text('详情')")
+    page.wait_for_function("() => document.body.innerText.includes('run.completed')", timeout=30000)
     body = page.inner_text("body")
     assert "model: test-fast" in body  # the chip next to the title
     for event in ("run.created", "agent.started", "agent.tool_call", "run.completed"):
         assert event in body, f"{event} missing from the timeline"
-    page.locator("main .page-head .status.succeeded").first.wait_for(timeout=10000)  # the badge follows the timeline by one reload
+
+
+def test_a_spreadsheet_is_previewed_live_and_can_be_revised(logged_in) -> None:
+    page = logged_in
+    _start_conversation(page, "做一个 Excel 表格")
+    page.wait_for_selector(".preview-pane .sheet-grid td", timeout=60000)  # appears while the turn is still running
+    _wait_for_turns(page, 1)
+    grid = page.inner_text(".preview-pane .sheet-grid")
+    assert "华东" in grid and "合计" in grid
+    assert page.inner_text(".preview-tab.on") == "sales.xlsx"
+    page.click(".preview-pane button[aria-label='关闭预览']")
+    assert page.locator(".preview-pane").count() == 0
+    page.click(".file-card button:has-text('预览')")
+    page.wait_for_selector(".preview-pane .sheet-grid")
+
+    _send(page, "表格再改一下")  # the second turn rebuilds the same file from the restored workspace
+    _wait_for_turns(page, 2)
+    assert page.locator(".file-card").count() == 2  # one delivery per turn, same file name
+
+
+def test_a_deck_that_cannot_be_previewed_says_so(logged_in) -> None:
+    page = logged_in
+    _start_conversation(page, "帮我做一个 PPT")
+    _wait_for_turns(page, 1, seconds=120)
+    page.click(".steps-head")
+    steps = page.inner_text(".steps")
+    assert "读取技能 pptx" in steps and "交付文件" in steps
+    # the browser tests run the mock sandbox on the host, which has no LibreOffice to render slides
+    assert "预览生成失败" in steps or page.locator(".preview-pane img").count() > 0
+    assert "ailab-demo.pptx" in page.inner_text(".file-card")
 
 
 def test_the_chosen_model_is_remembered(logged_in, stack) -> None:
     page = logged_in
+    page.wait_for_selector("select option", state="attached")
     page.select_option("select", "test-fast")
     page.goto(stack.portal + "/")
     page.wait_for_selector("select option", state="attached")
@@ -191,14 +256,25 @@ def test_the_chosen_model_is_remembered(logged_in, stack) -> None:
 
 def test_a_deliverable_can_be_downloaded(logged_in) -> None:
     page = logged_in
-    _submit_task(page, "总结这份资料，生成一个文件", "test-fast")
-    _wait_for_run_end(page)
-    page.wait_for_selector("text=产出")
+    _start_conversation(page, "总结这份资料，生成一个文件")
+    _wait_for_turns(page, 1)
     with page.expect_download() as download:
-        page.click("a:has-text('下载')")
+        page.click(".file-card a:has-text('下载')")
     content = open(download.value.path(), encoding="utf-8").read()
     assert download.value.suggested_filename == "answer.md"
     assert "处理结果" in content
+
+
+def test_a_conversation_can_be_deleted(logged_in, stack) -> None:
+    page = logged_in
+    conv = _start_conversation(page, "要删掉的对话")
+    _wait_for_turns(page, 1)
+    page.on("dialog", lambda d: d.accept())
+    page.hover(f".conv-item:has(a[href='/c/{conv}'])")
+    page.click(f".conv-item:has(a[href='/c/{conv}']) .conv-del")
+    page.wait_for_url(stack.portal + "/")
+    page.wait_for_selector(".chat-home")
+    assert page.locator(f".conv-item a[href='/c/{conv}']").count() == 0
 
 
 # ------------------------------------------------------------------------------------------ files

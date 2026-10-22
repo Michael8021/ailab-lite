@@ -25,7 +25,7 @@ sudo ./deploy.sh --model-key sk-xxxxxxxx     # 不带 --model-key 也行：先�
 ./deploy.sh --help
 ```
 
-打开 http://127.0.0.1:3000，用打印出来的账号（用户名 `admin` + 随机密码）登录，在工作台选模型、提交任务（如"帮我做一个 PPT，介绍…"）。
+打开 http://127.0.0.1:3000，用打印出来的账号（用户名 `admin` + 随机密码）登录，直接对话：可以普通问答，也可以让它做 PPT / Excel（右侧实时预览，可以接着对话修改）。
 Portal 默认只监听本机，从自己电脑看用 `ssh -L 3000:127.0.0.1:3000 <机器>`；`--listen 0.0.0.0` 会在网络上暴露
 一个 HTTP 登录页，仅限可信网络。k3s 本身的安装见 `tests/t0_base.sh`，平台的详细说明见 [platform/README.md](platform/README.md)。
 
@@ -80,7 +80,7 @@ dpkg -r runsc
 ## 目录
 
 - `k3s/`：k3s 配置、runsc 的 containerd 片段
-- `images/sbx-office/`：沙箱镜像、pptx-builder Skill、冒烟脚本
+- `images/sbx-office/`：沙箱镜像、办公技能（pptx / xlsx）、冒烟脚本
 - `deploy/base`、`deploy/overlays/lite`：部署文件（大集群对应 `overlays/prod`）
 - `platform/`：自研平台服务（Portal / Platform API / Agent / Broker / Worker）与 dev 启动脚本
 - `tests/`：各组测试脚本；`logs/`：本机测试输出与 iptables 快照（只在本机，不入库）

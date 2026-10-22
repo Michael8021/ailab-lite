@@ -18,7 +18,7 @@ T2/T3/T4 尚未就绪的依赖用可替换适配器顶替（见文末对照表�
 
 - `bash scripts/dev_up.sh` 启动 API / Broker / Agent / Worker / Portal。
 - `scripts/e2e_demo.py`：创建“帮我做一个 PPT” → Agent 调模型（mock）→ Broker 领沙箱 →
-  沙箱内 `pptx-builder` 生成并预览 → 两阶段提交 → 下载到 31 KB 的 `.pptx`（`PK` 魔数校验通过）。
+  沙箱内 `pptx` 技能生成 → 两阶段提交 → 下载 `.pptx`（`PK` 魔数校验通过）。
   已分别用 **Docker provider** 和 **OpenSandbox provider** 各跑通一次。
 - OpenSandbox dev server（`scripts/osb_up.sh`，:8090）已验证：创建/exec/文件读写/销毁、默认拒绝出网
   （沙箱内 DNS 解析失败）、1 CPU / 1.5 GiB 资源限制。
@@ -37,8 +37,43 @@ T2/T3/T4 尚未就绪的依赖用可替换适配器顶替（见文末对照表�
 | **Agent Service** | `ailab_platform/agent` | 消费 Run 队列；模型 tool-calling 循环；在沙箱里执行工具；交付产物 | 自研循环 + Mock LLM（T3 换 Higress/DeepSeek） |
 | **Sandbox Broker** | `ailab_platform/broker` | 沙箱租约、输入注入、exec/文件代理、两阶段提交、TTL 回收；**唯一沙箱持有者** | OpenSandbox（Docker runtime）或 Docker CLI |
 | **File Worker** | `ailab_platform/worker` | 消费文件队列；病毒扫描桩、文本/PDF/DOCX/PPTX/XLSX 解析、derivative 落盘 | 本地 Worker 线程（可拆独立进程） |
-| **Portal** | `portal/` | Next.js 工作台：新建任务、SSE 时间线、产出下载、资料库上传 | Next.js 15 dev server |
+| **Portal** | `portal/` | Next.js 对话界面：多轮对话、流式回答、执行步骤、PPT / Excel 实时预览、资料库 | Next.js 16 |
 | **共享内核** | `ailab_platform/{config,db,models,storage,queue,llm,clients,sandbox}` | 配置、数据模型、对象存储、队列、模型网关、服务间客户端 | 本地 FS / Redis / mock |
+
+## 对话、实时预览与办公技能
+
+Portal 的主界面是**对话**：左边对话列表，中间消息，右边预览。同一个对话框里既能普通问答，也能让它动手做文件，
+做出来的 PPT / Excel 可以接着对话修改（"第三页换成图表""再加一列占比"）。
+
+- **一条消息 = 一个 Run**（`runs.conversation_id`）。`POST /v1/conversations/{id}/messages` 建 Run；同一对话同一时间只答一条（409）。
+  Agent 拿到的 Run 里带 `history`（前面各轮的问题、回答、产出文件名，最近 12 轮）。
+- **普通问答不起沙箱**：沙箱在模型第一次调用需要它的工具（exec / 读写文件 / 交付 / 搜图）时才领，纯文字回答几秒内开始出字。
+- **流式回答**：模型输出按约 0.25 秒一批写成 `agent.delta` 事件，Portal 经 SSE 逐段显示；`agent.message` 是这一步的完整文本。
+- **工作区跨轮保留**：一轮结束时 Broker 把 `/workspace`（不含 inputs 和平台自己的 `.ailab/`）打包存到 `workspaces/<run>.tgz`，
+  下一轮领沙箱时自动解开（只恢复同一对话最新的那份，旧的删掉；键名由 API 推导，Agent 无法指定别人的工作区）。
+  所以模型能在上一轮的规格文件 `/workspace/work/deck.json` 上改，而不是从头再做。
+- **实时预览**：每次 exec / write_file 之后，Broker 检查 `/workspace/outputs` 里的 `.pptx/.docx/.xlsx/.pdf` 有没有变化（大小 + 修改时间），
+  有就在沙箱里用 LibreOffice 渲染（`sandbox_tools/render_preview.py`，Broker 现拷进去执行）：幻灯片 / 文档转成每页一张 JPEG，
+  表格先重算公式再导出单元格值和样式。结果存到 `previews/<run>/<n>/`，`GET /v1/runs/{id}/previews/<n>/<name>` 只给 Run 的主人。
+  渲染在后台进行，不挡模型下一步；Portal 收到 `preview.updated` 立即刷新右侧预览。
+- **办公技能**（`images/sbx-office/skills/`，同时打进沙箱镜像和平台镜像）：系统提示里只列技能名和一句话说明，
+  模型做对应任务前用 `load_skill` 读全文（普通问答不为几千字的 PPT 说明付 token）。
+  - `pptx`：JSON 规格 → `build.py` → 可编辑的 .pptx。7 套配色主题（可自定义主色 / 强调色），14 种版式（封面、目录、章节、
+    要点、卡片、对比、指标、大数字、原生图表、时间线、表格、引言、整页图、结尾），138 个 Lucide 图标（ISC），
+    按中文字宽估算自动缩字号，放不下的输出 `WARN`。设计规则参考了开源 skill
+    [claude-powerpoint-skill](https://github.com/PeterKalmstrom/claude-powerpoint-skill)（MIT）与
+    [MiniMax-AI/skills](https://github.com/MiniMax-AI/skills)（MIT）的做法（思路借鉴，未拷贝代码）；
+    Anthropic 官方的 pptx/xlsx skill 是专有许可，不能放进本仓库。
+  - `xlsx`：JSON 规格或辅助函数 → 表头样式、数字格式、公式（`{r}` 行号占位）、合计行、条件格式、原生图表。
+- **配图**：`search_images` 由 Agent 在沙箱**外**执行（沙箱仍然不联网）：查 [Openverse](https://openverse.org)
+  （开放授权图片，不需要 Key；只取允许商用且允许修改的授权），下载后重新编码成纯 JPEG 再放进 `/workspace/assets/images/`，
+  署名写进同目录 `credits.json`，pptx 生成器自动印在图片角上。只访问公网地址（拒绝内网 / 元数据地址，重定向也检查）。
+  匿名额度约每分钟 20 次、每天 200 次，接口较慢（单次 10～20 秒），结果缓存 1 小时；`AILAB_IMAGE_SEARCH_PROVIDER=none` 关闭，
+  内网部署时要么关掉、要么换成内部图库。
+- **步数**：默认 20 步（k3s 24 步），还剩 3 步时提醒模型收尾；用完后再让模型（不带工具）总结进度，有产出就算成功。
+
+实测（DeepSeek V4.1 Flash，k3s + OpenSandbox）：普通问答约 4 秒出字；"做一个 8 页汇报 PPT，要配图和图表"约 3 分钟
+（大半时间在搜图）；"换成绿色系、第 3 页改成对比版式"约 35 秒；带公式和图表的三表 Excel 约 70 秒。
 
 ## 一次任务的链路
 
@@ -223,6 +258,10 @@ ConfigMap/Secret。PVC 用 initContainer 把 `/data` chown 给 10001；镜像里
 ## API 摘要
 
 公开（`Authorization: Bearer <token>`）：
+
+对话：`GET/POST /v1/conversations`、`GET/PATCH/DELETE /v1/conversations/{id}`（详情含各轮 Run 和最新预览）、
+`POST /v1/conversations/{id}/messages`（`{prompt, model?, file_ids?}`，返回这一轮的 Run）、
+`GET /v1/runs/{id}/previews/{n}/{p-01.jpg | sheets.json}`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|

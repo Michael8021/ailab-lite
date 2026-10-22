@@ -14,6 +14,7 @@ export type Me = { id: string; username: string | null; display_name: string; em
 
 export type Run = {
   id: string;
+  conversation_id?: string | null;
   title: string;
   prompt: string;
   status: string;
@@ -24,8 +25,37 @@ export type Run = {
   started_at?: string | null;
   finished_at?: string | null;
   artifacts?: Artifact[];
+  input_files?: { file_id: string; filename: string }[];
+  result?: { previews?: Preview[]; [key: string]: any };
   usage?: { prompt_tokens?: number; completion_tokens?: number; calls?: number };
 };
+
+/** A rendered preview of an office file a run produced (see the Broker's refresh_previews). */
+export type Preview = {
+  filename: string;
+  version: number;
+  run_id?: string;
+  kind?: "pages" | "sheets";
+  pages?: string[]; // "<n>/p-01.jpg", relative to the run's previews
+  data?: string; // "<n>/sheets.json"
+  errors?: string[];
+  error?: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+  last_status?: string | null;
+};
+
+export type ConversationDetail = Conversation & { turns: Run[]; previews: Preview[] };
+
+export function previewUrl(runId: string, name: string): string {
+  return `${API_BASE}/v1/runs/${runId}/previews/${name}`;
+}
 
 export type Artifact = {
   id: string;

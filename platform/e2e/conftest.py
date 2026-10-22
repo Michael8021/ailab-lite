@@ -118,6 +118,7 @@ def stack(tmp_path_factory):
         AILAB_RUN_QUEUE=f"ailab:stream:e2e-runs-{tag}",
         AILAB_FILE_QUEUE=f"ailab:stream:e2e-files-{tag}",
         AILAB_SANDBOX_PROVIDER="mock",
+        AILAB_IMAGE_SEARCH_PROVIDER="mock",
         AILAB_MODELS_FILE=str(PLATFORM / "tests" / "models.test.toml"),
         AILAB_API_BASE_URL=f"http://127.0.0.1:{ports['api']}",
         AILAB_BROKER_BASE_URL=f"http://127.0.0.1:{ports['broker']}",

@@ -5,12 +5,12 @@ import { usePathname } from "next/navigation";
 import { api, Me } from "../lib/api";
 
 const LINKS = [
-  { href: "/", label: "工作台" },
+  { href: "/", label: "对话" },
   { href: "/files", label: "资料库" },
 ];
 
 function active(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" || pathname.startsWith("/runs") : pathname.startsWith(href);
+  return href === "/" ? pathname === "/" || pathname.startsWith("/c/") || pathname.startsWith("/runs") : pathname.startsWith(href);
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
