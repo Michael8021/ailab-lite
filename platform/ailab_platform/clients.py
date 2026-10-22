@@ -189,6 +189,13 @@ class AsyncBrokerClient(_Service):
         body = {"path": path, "filename": filename, "role": role}
         return (await self._send(self._req("POST", f"/internal/leases/{lease_id}/commit", timeout=180, json=body))).json()
 
+    async def refresh_previews(self, lease_id: str) -> list[dict]:
+        r = await self._send(self._req("POST", f"/internal/leases/{lease_id}/previews", timeout=660))
+        return r.json().get("previews", [])
+
+    async def snapshot(self, lease_id: str) -> dict:
+        return (await self._send(self._req("POST", f"/internal/leases/{lease_id}/snapshot", timeout=300))).json()
+
     async def release(self, lease_id: str) -> None:
         req = self._req("DELETE", f"/internal/leases/{lease_id}", timeout=60)
         async with httpx.AsyncClient(timeout=req.timeout) as c:

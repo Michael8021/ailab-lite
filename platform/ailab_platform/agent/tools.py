@@ -9,9 +9,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .. import images
 from ..clients import AsyncBrokerClient
 from ..llm import INVALID_ARGUMENTS_KEY
 from ..paths import OUTPUTS, WORKSPACE, PathError, normalize_path
+from .prompts import load_skill
 
 
 class ToolError(RuntimeError):
@@ -84,19 +86,41 @@ TOOLS: list[dict] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "finish",
-            "description": "结束任务，给出中文总结。",
-            "parameters": {
-                "type": "object",
-                "properties": {"summary": {"type": "string"}},
-                "required": ["summary"],
+]
+
+# Run by the Agent itself, no sandbox needed.
+LOAD_SKILL = {
+    "type": "function",
+    "function": {
+        "name": "load_skill",
+        "description": "读取一个技能（如 pptx、xlsx）的完整说明。做对应任务前先读。",
+        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    },
+}
+
+SEARCH_IMAGES = {
+    "type": "function",
+    "function": {
+        "name": "search_images",
+        "description": "按关键词搜索开放授权的照片，下载到 /workspace/assets/images/，返回文件路径和署名。用于 PPT 封面、章节页、配图页。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "具体的名词短语，英文效果最好，如 'city skyline at night'"},
+                "count": {"type": "integer", "minimum": 1, "maximum": 6, "default": 3},
+                "orientation": {"type": "string", "enum": ["wide", "tall", "square"], "default": "wide"},
             },
+            "required": ["query"],
         },
     },
-]
+}
+
+# Tools that need a sandbox: the first call to one of them starts it.
+SANDBOX_TOOLS = {"list_files", "read_file", "write_file", "exec", "deliver_file", "search_images"}
+
+
+def tools_for_turn() -> list[dict]:
+    return [*TOOLS, LOAD_SKILL, *([SEARCH_IMAGES] if images.enabled() else [])]
 
 
 def _workspace_path(path: str, under: str = WORKSPACE) -> str:
@@ -129,7 +153,7 @@ async def execute_tool(name: str, args: dict[str, Any], lease_id: str, broker: A
     if INVALID_ARGUMENTS_KEY in args:
         raise ToolError("tool arguments were not valid JSON; resend the call with a well-formed JSON object")
     if name == "exec":
-        cmd = str(args.get("cmd") or "").strip()
+        cmd = str(args.get("cmd") or args.get("command") or "").strip()  # models sometimes say "command"
         if not cmd:
             raise ToolError("exec requires cmd")
         timeout = args.get("timeout_seconds")
@@ -167,8 +191,47 @@ async def execute_tool(name: str, args: dict[str, Any], lease_id: str, broker: A
         result = await broker.commit(lease_id, path, str(filename) if filename else None)
         return {"ok": True, **result}
 
-    if name == "finish":
+    if name == "finish":  # no longer offered; older prompts and the mock may still call it
         return {"ok": True, "summary": str(args.get("summary") or "")}
+
+    if name == "load_skill":
+        try:
+            return {"ok": True, "skill": load_skill(str(args.get("name") or ""))}
+        except KeyError as exc:
+            raise ToolError(str(exc.args[0])) from exc
+
+    if name == "search_images":
+        query = str(args.get("query") or "").strip()
+        if not query:
+            raise ToolError("search_images requires query")
+        try:
+            found = await images.search_and_fetch(query, int(args.get("count") or 3), str(args.get("orientation") or "wide"))
+        except images.ImageSearchError as exc:
+            raise ToolError(str(exc)) from exc
+        if not found:
+            return {"ok": True, "images": [], "note": "没有找到合适的图片，换个关键词，或者不用配图（用图标和色块）"}
+        for item in found:
+            await broker.put_file(lease_id, f"{images.ASSET_DIR}/{item['name']}", item["data"])
+        credits_path = f"{images.ASSET_DIR}/credits.json"
+        try:
+            existing = await broker.get_file(lease_id, credits_path)
+        except Exception:
+            existing = None
+        await broker.put_file(lease_id, credits_path, images.merge_credits(existing, found))
+        return {
+            "ok": True,
+            "images": [
+                {
+                    "path": f"{images.ASSET_DIR}/{i['name']}",
+                    "width": i["width"],
+                    "height": i["height"],
+                    "title": i["title"],
+                    "credit": i["credit"],
+                }
+                for i in found
+            ],
+            "note": "pptx 生成器会自动在图片上加署名，不要删除 credits.json",
+        }
 
     raise ToolError(f"unknown tool: {name}")
 

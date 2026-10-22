@@ -40,6 +40,7 @@ def run_dict(db: Session, run: Run, detail: bool = False) -> dict:
     out = {
         "id": run.id,
         "user_id": run.user_id,
+        "conversation_id": run.conversation_id,
         "title": run.title,
         "prompt": run.prompt,
         "status": run.status,

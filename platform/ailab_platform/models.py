@@ -80,11 +80,26 @@ class ApiToken(Base):
     user: Mapped[User] = relationship(back_populates="tokens")
 
 
+class Conversation(Base):
+    """A chat thread. Each user message starts one Run (a turn); turns share history and a sandbox workspace."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cnv"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    model: Mapped[str] = mapped_column(String(120), default="")  # the last model picked here
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("run"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="")
     prompt: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=RunStatus.QUEUED, index=True)

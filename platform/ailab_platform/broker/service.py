@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import mimetypes
+import shlex
 import threading
 import time
 import uuid
@@ -19,11 +20,19 @@ from ..clients import PlatformClient
 from ..config import settings
 from ..paths import OUTPUTS, PathError, normalize_path
 from ..sandbox import ExecResult, SandboxError, get_provider
+from ..sandbox_tools import RENDER_PREVIEW
 from ..storage import get_storage
 
 log = logging.getLogger("ailab.broker")
 
 LEASE_RECORD_GRACE_SECONDS = 3600
+
+# Platform-owned files inside the sandbox live here; they are left out of workspace snapshots.
+TOOL_DIR = "/workspace/.ailab"
+SNAPSHOT_PATH = f"{TOOL_DIR}/snapshot.tgz"
+PREVIEW_SCRIPT = f"{TOOL_DIR}/render_preview.py"
+PREVIEW_PATTERNS = ("*.pptx", "*.docx", "*.xlsx", "*.pdf")
+MAX_PREVIEWS_PER_CALL = 3
 
 
 class LeaseError(RuntimeError):
@@ -163,6 +172,9 @@ class LeaseManager:
                 self.provider.put_file(sandbox_id, path, data)
                 injected.append({"file_id": file_id, "filename": name, "path": path})
             lease["inputs"] = injected
+            restore_key = run.get("workspace_restore_key")
+            if restore_key:
+                self._restore_workspace(lease, restore_key)
             self._save(lease)
         except Exception as exc:
             log.exception("input injection failed for %s", lease_id)
@@ -182,6 +194,113 @@ class LeaseManager:
 
     def get(self, lease_id: str) -> dict:
         return self._load(lease_id)
+
+    # ---------------------------------------------------------------- workspace across turns
+    def _restore_workspace(self, lease: dict, key: str) -> None:
+        """Unpack the previous turn's workspace. A failure costs the continuity, not the turn."""
+        sandbox_id = lease["sandbox_id"]
+        try:
+            data = self.storage.get_bytes(key)
+            self.provider.put_file(sandbox_id, SNAPSHOT_PATH, data)
+            res = self.provider.exec(sandbox_id, f"tar -xzf {SNAPSHOT_PATH} -C /workspace && rm -f {SNAPSHOT_PATH}", 120)
+            if res.exit_code != 0:
+                raise SandboxError(res.stderr[-300:] or f"tar exit {res.exit_code}")
+            lease["restored"] = True
+            # what is already there was previewed in an earlier turn: render only what changes from now on
+            lease["preview_fp"] = self._fingerprints(sandbox_id)
+        except Exception as exc:
+            log.warning("workspace restore failed for %s from %s", lease["lease_id"], key, exc_info=True)
+            lease["restored"] = False
+            lease["restore_error"] = str(exc)[:300]
+
+    def snapshot(self, lease_id: str) -> dict:
+        """Pack /workspace (minus inputs and platform files) into storage for the conversation's next turn."""
+        lease = self._load(lease_id)
+        sandbox_id = lease["sandbox_id"]
+        cmd = (
+            f"mkdir -p {TOOL_DIR} && tar -czf {SNAPSHOT_PATH} -C /workspace --exclude=./.ailab --exclude=./inputs . "
+            f"&& stat -c %s {SNAPSHOT_PATH}"
+        )
+        res = self.provider.exec(sandbox_id, cmd, 180)
+        size_line = (res.stdout.strip().splitlines() or [""])[-1]
+        if res.exit_code != 0 or not size_line.isdigit():
+            raise SandboxError(f"workspace snapshot failed: {res.stderr[-300:]}")
+        size = int(size_line)
+        if size > settings.max_workspace_bytes:
+            raise ArtifactRejected(f"workspace is {size} bytes compressed; the limit is {settings.max_workspace_bytes}")
+        data = self.provider.get_file(sandbox_id, SNAPSHOT_PATH)
+        key = f"workspaces/{lease['run_id']}.tgz"
+        self.storage.put_bytes(key, data, "application/gzip")
+        self.provider.exec(sandbox_id, f"rm -f {SNAPSHOT_PATH}", 30)
+        return {"key": key, "size": size}
+
+    # ---------------------------------------------------------------- live previews
+    def _fingerprints(self, sandbox_id: str) -> dict[str, str]:
+        names = " -o ".join(f"-iname '{p}'" for p in PREVIEW_PATTERNS)
+        res = self.provider.exec(sandbox_id, f"find {OUTPUTS} -maxdepth 1 -type f \\( {names} \\) -printf '%p\\t%s:%T@\\n'", 30)
+        out: dict[str, str] = {}
+        for line in res.stdout.splitlines():
+            path, _, fp = line.partition("\t")
+            if path.startswith(OUTPUTS + "/") and fp:
+                out[path] = fp
+        return out
+
+    def refresh_previews(self, lease_id: str) -> list[dict]:
+        """Render previews of office files in /workspace/outputs that are new or changed since the last call.
+
+        Pages become JPEGs and spreadsheets a JSON of cell values, stored under previews/<run>/<n>/ where the
+        API serves them to the run's owner. Returns one manifest per rendered file (or one with an "error").
+        """
+        lease = self._load(lease_id)
+        sandbox_id, run_id = lease["sandbox_id"], lease["run_id"]
+        current = self._fingerprints(sandbox_id)
+        seen: dict[str, str] = lease.get("preview_fp") or {}
+        changed = [p for p, fp in sorted(current.items()) if seen.get(p) != fp][:MAX_PREVIEWS_PER_CALL]
+        if not changed:
+            return []
+        if not lease.get("preview_tool"):
+            self.provider.put_file(sandbox_id, PREVIEW_SCRIPT, RENDER_PREVIEW.read_bytes())
+            lease["preview_tool"] = True
+        manifests = []
+        for path in changed:
+            seq = int(lease.get("preview_seq", 0)) + 1
+            lease["preview_seq"] = seq
+            seen[path] = current[path]  # even when rendering fails: do not retry the same bytes forever
+            outdir = f"{TOOL_DIR}/preview/{seq}"
+            filename = Path(path).name
+            started = time.perf_counter()
+            res = self.provider.exec(sandbox_id, f"python {PREVIEW_SCRIPT} {shlex.quote(path)} {outdir}", 300)
+            try:
+                result = json.loads((res.stdout.strip().splitlines() or ["{}"])[-1])
+            except json.JSONDecodeError:
+                result = {"error": (res.stderr or res.stdout)[-300:] or f"renderer exit {res.exit_code}"}
+            manifest = {"filename": filename, "path": path, "version": seq}
+            try:
+                if result.get("error"):
+                    manifest["error"] = str(result["error"])[:300]
+                elif result.get("kind") == "pages":
+                    names = []
+                    for name in result.get("pages", []):
+                        self.storage.put_bytes(
+                            f"previews/{run_id}/{seq}/{name}", self.provider.get_file(sandbox_id, f"{outdir}/{name}"), "image/jpeg"
+                        )
+                        names.append(f"{seq}/{name}")
+                    manifest.update(kind="pages", pages=names)
+                elif result.get("kind") == "sheets":
+                    data = self.provider.get_file(sandbox_id, f"{outdir}/sheets.json")
+                    self.storage.put_bytes(f"previews/{run_id}/{seq}/sheets.json", data, "application/json")
+                    manifest.update(kind="sheets", data=f"{seq}/sheets.json", errors=result.get("errors", []))
+                else:
+                    manifest["error"] = "renderer returned nothing usable"
+            except Exception as exc:
+                log.warning("storing preview %s of %s failed", seq, path, exc_info=True)
+                manifest["error"] = f"could not store the preview: {exc}"[:300]
+            manifest["seconds"] = round(time.perf_counter() - started, 1)
+            self.provider.exec(sandbox_id, f"rm -rf {outdir}", 30)
+            manifests.append(manifest)
+        lease["preview_fp"] = seen
+        self._save(lease)
+        return manifests
 
     def release(self, lease_id: str, reason: str = "released") -> None:
         try:

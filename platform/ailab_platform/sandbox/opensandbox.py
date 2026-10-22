@@ -131,7 +131,8 @@ class OpenSandboxProvider(SandboxProvider):
             raise SandboxError(f"refusing to write through a symlink: {path}")
         sandbox = self._sandbox(sandbox_id)
         try:
-            sandbox.files.write_file(path, data, mode=0o644)
+            # OpenSandbox reads the mode's decimal digits as octal ("644" -> rw-r--r--); 0o644 (= 420) would become r---w----
+            sandbox.files.write_file(path, data, mode=644)
         except Exception as exc:
             raise SandboxError(f"OpenSandbox write_file failed: {exc}") from exc
 

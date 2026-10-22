@@ -26,7 +26,7 @@ data:
   AILAB_SANDBOX_PROVIDER: opensandbox
   AILAB_OSB_DOMAIN: 127.0.0.1:8090
   AILAB_SANDBOX_IMAGE: harbor.ailab.local/sandbox/sbx-office:lite
-  AILAB_MAX_AGENT_STEPS: "16"
+  AILAB_MAX_AGENT_STEPS: "24"
   AILAB_MAX_SANDBOXES: "1"
 ---
 apiVersion: v1
