@@ -85,6 +85,7 @@ class InternalRunDetail(RunDetail):
     history: list[dict] = Field(default_factory=list)
     workspace_restore_key: str | None = None
     disabled_skills: list[str] = Field(default_factory=list)
+    personal_skills: list[dict] = Field(default_factory=list)
 
 
 class ConversationCreate(BaseModel):

@@ -27,6 +27,7 @@ from ..quota import enforce_token_quota, usage_summary
 from ..run_state import transition_run
 from ..schemas import EventOut, RunCreate, RunDetail, RunOut
 from ..storage import get_storage
+from .routes_skills import usable_personal
 from .serializers import run_dict
 
 router = APIRouter(prefix="/v1", tags=["runs"])
@@ -76,11 +77,12 @@ def start_run(
         raise HTTPException(status_code=413, detail=f"prompt exceeds {settings.max_prompt_chars} chars")
     options: dict = {"mode": mode}
     if skill:
-        if skill not in skills():
-            raise HTTPException(status_code=400, detail=f"unknown skill: {skill}")
         if skill in ((user.settings or {}).get("disabled_skills") or []):
-            raise HTTPException(status_code=400, detail=f"技能「{skills()[skill]['title']}」已关闭，可在侧栏「技能」里打开")
-        options = {"mode": "work", "skill": skill}  # a skill is work by definition
+            raise HTTPException(status_code=400, detail=f"技能「{skill}」已关闭，可在侧栏「技能」里打开")
+        known = skills().get(skill) or usable_personal(db, user).get(skill)
+        if not known:
+            raise HTTPException(status_code=400, detail=f"unknown skill: {skill}")
+        options = {"mode": "work", "skill": skill, "skill_title": known.get("title") or skill}  # a skill is work by definition
 
     catalog = get_catalog()
     model_id = model or catalog.default_id()

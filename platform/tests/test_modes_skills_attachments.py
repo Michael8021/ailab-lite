@@ -30,7 +30,7 @@ def test_mode_and_skill_are_stored_and_checked() -> None:
         deck = c.post(
             f"/v1/conversations/{conv['id']}/messages", headers=AUTH, json={"prompt": "PPT", "mode": "chat", "skill": "pptx"}
         ).json()
-        assert deck["options"] == {"mode": "work", "skill": "pptx"}  # a skill is work by definition
+        assert deck["options"] == {"mode": "work", "skill": "pptx", "skill_title": "演示文稿（PPT）"}  # a skill is work by definition
         c.post(f"/v1/runs/{deck['id']}/cancel", headers=AUTH)
         assert c.post(f"/v1/conversations/{conv['id']}/messages", headers=AUTH, json={"prompt": "x", "skill": "nope"}).status_code == 400
         assert c.post(f"/v1/conversations/{conv['id']}/messages", headers=AUTH, json={"prompt": "x", "mode": "other"}).status_code == 422
@@ -115,7 +115,7 @@ def test_a_picked_skill_comes_preloaded() -> None:
     system = llm.seen_messages[0][0]["content"]
     assert "本轮已选技能：pptx" in system and "/opt/skills/pptx/scripts/build.py" in system
     assert llm.offered[0]  # work mode: tools offered
-    assert ("agent.skill", {"name": "pptx"}) in platform.events
+    assert ("agent.skill", {"name": "pptx", "title": "演示文稿（PPT）"}) in platform.events
 
 
 def test_attachment_text_is_in_the_message() -> None:

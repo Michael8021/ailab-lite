@@ -26,7 +26,7 @@ export type Run = {
   finished_at?: string | null;
   artifacts?: Artifact[];
   input_files?: { file_id: string; filename: string }[];
-  options?: { mode?: "chat" | "work"; skill?: string };
+  options?: { mode?: "chat" | "work"; skill?: string; skill_title?: string };
   result?: { previews?: Preview[]; [key: string]: any };
   usage?: { prompt_tokens?: number; completion_tokens?: number; calls?: number };
 };
@@ -43,7 +43,19 @@ export type Preview = {
   error?: string;
 };
 
-export type Skill = { name: string; title: string; description: string; builtin: boolean; enabled: boolean };
+export type Skill = {
+  name: string;
+  title: string;
+  description: string;
+  builtin: boolean;
+  enabled: boolean;
+  scope: "builtin" | "personal";
+  file_id?: string; // personal skills: the file in the library that defines it
+  filename?: string;
+  kind?: "md" | "zip";
+  files?: number;
+  error?: string | null; // why a personal skill file cannot be used
+};
 
 export type Conversation = {
   id: string;

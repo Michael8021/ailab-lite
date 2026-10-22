@@ -37,6 +37,7 @@ from ..schemas import (
     UsageIn,
 )
 from ..storage import get_storage
+from .routes_skills import usable_personal
 from .serializers import file_dict, run_dict
 
 router = APIRouter(prefix="/internal", tags=["internal"], dependencies=[Depends(service_auth)])
@@ -128,6 +129,11 @@ def internal_get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
     out["input_files"] = _attachment_texts(db, run)
     owner = db.get(User, run.user_id)
     out["disabled_skills"] = list(((owner.settings if owner else None) or {}).get("disabled_skills") or [])
+    out["personal_skills"] = (
+        [{k: s[k] for k in ("name", "title", "description", "file_id", "filename", "kind")} for s in usable_personal(db, owner).values()]
+        if owner
+        else []
+    )
     out["workspace_restore_key"] = next(
         (workspace_key(t.id) for t in reversed(earlier) if (t.result or {}).get("workspace_saved")),
         None,
