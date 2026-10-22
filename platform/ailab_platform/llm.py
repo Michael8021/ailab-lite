@@ -362,9 +362,13 @@ class MockLLM(LLMClient):
         usage = {"prompt_tokens": max(1, len(json.dumps(messages, ensure_ascii=False)) // 4), "completion_tokens": 20}
 
         script, closing = None, ""
-        if _wants_ppt(prompt):
+        system = str(messages[0].get("content") or "") if messages else ""
+        picked = next((k for k in ("pptx", "xlsx") if f"本轮已选技能：{k}" in system), "")
+        if not tools:  # chat mode: words only
+            pass
+        elif picked == "pptx" or _wants_ppt(prompt):
             script, closing = _PPT, "已完成：演示文稿已生成并交付到资料库，右侧可以预览。想调整哪一页、换什么配色，直接告诉我。"
-        elif _wants_xlsx(prompt):
+        elif picked == "xlsx" or _wants_xlsx(prompt):
             script, closing = _XLSX, "表格已生成并交付：包含三个区域的月度数据、合计行和柱状图。"
         elif "文件" in prompt or "总结" in prompt:
             content = f"# 处理结果\n\n原始请求：{prompt}\n\n这是 Agent Service 生成的文件。\n"
@@ -378,12 +382,13 @@ class MockLLM(LLMClient):
             closing = "沙箱命令已执行完成。"
 
         if script is None:  # plain chat: answer directly, no tools
-            turns = sum(1 for m in messages if m.get("role") == "user")
+            turns = sum(1 for m in messages if m.get("role") == "user" and not m.get("content", "").startswith("（平台提示"))
+            attached = prompt.count("（附件《")
             text = (
                 f"你好！这是**离线演示模型**的回答（本对话第 {turns} 轮）。\n\n"
                 "- 它不调用真实大模型，只用来演示完整链路\n"
                 "- 说「做一个 PPT」或「做一个 Excel 表格」可以看到沙箱生成文件和实时预览\n\n"
-                f"> 你刚才说：{prompt[:80]}"
+                f"> 你刚才说：{prompt.split(chr(10))[0][:80]}" + (f"\n\n我读到了 {attached} 个附件的内容。" if attached else "")
             )
             thinking = f"用户说：「{prompt[:40]}」。这是离线演示模型，不需要工具，按固定模板直接回答，并提示可以试试做 PPT 或表格。"
             return LLMResponse(content=text, usage=usage, reasoning_content=thinking)

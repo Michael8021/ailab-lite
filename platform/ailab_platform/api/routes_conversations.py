@@ -118,5 +118,5 @@ def send_message(conversation_id: str, body: MessageCreate, user: User = Depends
     if not conv.title:
         first_line = body.prompt.strip().splitlines()[0] if body.prompt.strip() else "新对话"
         conv.title = first_line[:TITLE_CHARS] + ("…" if len(first_line) > TITLE_CHARS else "")
-    run = start_run(db, user, body.prompt, body.model, body.file_ids, conversation=conv)
+    run = start_run(db, user, body.prompt, body.model, body.file_ids, conversation=conv, mode=body.mode, skill=body.skill)
     return run_dict(db, run, detail=True)

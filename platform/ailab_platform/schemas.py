@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,6 +51,8 @@ class RunCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     file_ids: list[str] = Field(default_factory=list)
     model: str | None = Field(default=None, max_length=120)
+    mode: Literal["chat", "work"] = "work"  # chat: answer in words only, no tools, never a sandbox
+    skill: str | None = Field(default=None, max_length=40)  # a skill the user picked (implies work)
 
 
 class RunOut(ORMModel):
@@ -61,6 +64,7 @@ class RunOut(ORMModel):
     status: str
     model: str
     input_file_ids: list[str]
+    options: dict = Field(default_factory=dict)
     summary: str
     error: str
     result: dict
@@ -95,6 +99,8 @@ class MessageCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     file_ids: list[str] = Field(default_factory=list)
     model: str | None = Field(default=None, max_length=120)
+    mode: Literal["chat", "work"] = "work"
+    skill: str | None = Field(default=None, max_length=40)
 
 
 class ConversationOut(BaseModel):

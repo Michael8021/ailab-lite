@@ -85,12 +85,48 @@ def system_prompt() -> str:
     return BASE_PROMPT.replace("{skills}", index)
 
 
+CHAT_MODE_NOTE = """
+
+# 本轮是「对话」模式
+用户选择了只对话：这一轮没有任何工具和沙箱，直接用文字回答。附件内容已经附在消息里。
+如果用户要的是文件（PPT、表格、文档）或者需要运行代码，简要说明后请他切换到「工作」模式再发一次。"""
+
+SKILL_NOTE = """
+
+# 本轮已选技能：{name}
+用户在界面上选择了这个技能，这一轮要按它产出文件（不需要再调用 load_skill）。技能说明：
+
+{text}"""
+
+
+def system_prompt_for(mode: str = "work", skill: str | None = None) -> str:
+    """The system prompt for one run: chat mode drops the tools, a picked skill comes preloaded."""
+    if mode == "chat":
+        return system_prompt() + CHAT_MODE_NOTE
+    if skill:
+        return system_prompt() + SKILL_NOTE.format(name=skill, text=load_skill(skill))
+    return system_prompt()
+
+
 def user_prompt(prompt: str, input_files: list[dict] | None = None) -> str:
+    """The message, plus each attachment: its extracted text when there is one, and where the file is."""
     if not input_files:
         return prompt
-    lines = [prompt, "", "（本轮附件，使用沙箱时位于 /workspace/inputs/：）"]
+    lines = [prompt]
     for f in input_files:
-        lines.append(f"- /workspace/inputs/{f.get('filename') or f.get('file_id')}")
+        name = f.get("filename") or f.get("file_id")
+        text = (f.get("text") or "").strip()
+        lines.append("")
+        if text:
+            cut = f"，以下是前 {len(text)} 字" if f.get("truncated") else ""
+            lines += [
+                f"（附件《{name}》：共 {f.get('chars') or len(text)} 字{cut}；原文件使用沙箱时在 /workspace/inputs/{name}）",
+                "```",
+                text,
+                "```",
+            ]
+        else:
+            lines.append(f"（附件《{name}》：没有可直接读取的文字；原文件使用沙箱时在 /workspace/inputs/{name}）")
     return "\n".join(lines)
 
 

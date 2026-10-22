@@ -85,3 +85,31 @@ export const IconMore = (p: Props) => (
     <circle cx="5" cy="12" r="1" />
   </Svg>
 );
+
+// Lucide (ISC): presentation, sheet, chart-column
+export const IconSlides = (p: Props) => (
+  <Svg {...p}>
+    <path d="M2 3h20" />
+    <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3" />
+    <path d="m7 21 5-5 5 5" />
+  </Svg>
+);
+
+export const IconSheet = (p: Props) => (
+  <Svg {...p}>
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+    <path d="M3 9h18" />
+    <path d="M3 15h18" />
+    <path d="M9 9v12" />
+    <path d="M15 9v12" />
+  </Svg>
+);
+
+export const IconChart = (p: Props) => (
+  <Svg {...p}>
+    <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+    <path d="M18 17V9" />
+    <path d="M13 17V5" />
+    <path d="M8 17v-3" />
+  </Svg>
+);

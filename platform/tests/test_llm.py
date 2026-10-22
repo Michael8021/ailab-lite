@@ -5,9 +5,11 @@ import json
 
 from ailab_platform.llm import MockLLM
 
+TOOLS = [{"type": "function", "function": {"name": "exec"}}]  # what the agent offers in work mode
 
-def _call(messages: list[dict], prompt: str):
-    return asyncio.run(MockLLM().chat(messages, tools=[], model="mock"))
+
+def _call(messages: list[dict], prompt: str, tools=TOOLS):
+    return asyncio.run(MockLLM().chat(messages, tools=tools, model="mock"))
 
 
 def test_mock_ppt_sequence() -> None:
@@ -82,3 +84,8 @@ def test_mock_sandbox_command_finishes() -> None:
     final = _call(messages, "在沙箱里执行一条命令")
     assert not final.tool_calls
     assert final.content
+
+
+def test_mock_without_tools_only_talks() -> None:
+    reply = _call([{"role": "user", "content": "帮我做一个 PPT"}], "", tools=[])
+    assert not reply.tool_calls and reply.content

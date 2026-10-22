@@ -48,6 +48,43 @@ def _run_or_404(db: Session, run_id: str) -> Run:
     return run
 
 
+ATTACHMENT_CHARS = 30_000  # of one attachment's text given to the model
+ATTACHMENTS_CHARS = 60_000  # of all of a run's attachments together
+
+
+def _attachment_texts(db: Session, run: Run) -> list[dict]:
+    """The run's input files, each with the text the Worker extracted (so the model can read it without a sandbox)."""
+    storage = get_storage()
+    out, budget = [], ATTACHMENTS_CHARS
+    for file_id in run.input_file_ids or []:
+        f = db.get(FileObject, file_id)
+        if f is None:
+            continue
+        meta = f.meta or {}
+        text = ""
+        if meta.get("text_key"):
+            try:
+                text = storage.get_bytes(meta["text_key"]).decode("utf-8", "replace")
+            except Exception:
+                log.warning("attachment text missing for %s", file_id, exc_info=True)
+        total = len(text) or int((meta.get("extract") or {}).get("chars") or 0)
+        if not text and meta.get("excerpt"):  # processed before full texts were kept: the excerpt is all there is
+            text = meta["excerpt"]
+        keep = text[: max(0, min(ATTACHMENT_CHARS, budget))]
+        budget -= len(keep)
+        out.append(
+            {
+                "file_id": f.id,
+                "filename": f.filename,
+                "kind": (meta.get("extract") or {}).get("kind", ""),
+                "chars": total,
+                "text": keep,
+                "truncated": len(keep) < total,
+            }
+        )
+    return out
+
+
 HISTORY_TURNS = 12
 HISTORY_CHARS = 4000  # per reply: older answers are context, not something to repeat verbatim
 
@@ -86,6 +123,7 @@ def internal_get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
         ]
         history.append({"prompt": turn.prompt, "reply": reply[:HISTORY_CHARS], "status": turn.status, "files": files})
     out["history"] = history
+    out["input_files"] = _attachment_texts(db, run)
     out["workspace_restore_key"] = next(
         (workspace_key(t.id) for t in reversed(earlier) if (t.result or {}).get("workspace_saved")),
         None,

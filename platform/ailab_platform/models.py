@@ -105,6 +105,8 @@ class Run(Base):
     status: Mapped[str] = mapped_column(String(20), default=RunStatus.QUEUED, index=True)
     model: Mapped[str] = mapped_column(String(120), default="")
     input_file_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # how the user asked: {"mode": "chat" | "work", "skill": "pptx" | ...} (empty for runs from before)
+    options: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     summary: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")

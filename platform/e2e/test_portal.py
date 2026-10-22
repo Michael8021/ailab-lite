@@ -35,6 +35,13 @@ def _start_conversation(page, prompt: str, model: str = "test-fast") -> str:
     return page.url.rsplit("/", 1)[-1]
 
 
+def _open_all_steps(page) -> None:
+    """Expand every group of steps (a group still open from streaming must not be toggled shut)."""
+    closed = page.locator(".steps-head[aria-expanded='false']")
+    while closed.count():  # re-query each time: an opened head no longer matches
+        closed.first.click()
+
+
 def _wait_for_turns(page, count: int, seconds: int = 90) -> None:
     """Until `count` turns have finished (each finished turn shows its meta line)."""
     page.wait_for_function("(n) => document.querySelectorAll('.turn-meta').length >= n", arg=count, timeout=seconds * 1000)
@@ -207,7 +214,7 @@ def test_a_task_runs_to_completion_and_its_timeline_streams_in(logged_in) -> Non
     page = logged_in
     _start_conversation(page, "你好，在沙箱里执行一条命令")
     _wait_for_turns(page, 1)
-    page.click(".steps-head")
+    _open_all_steps(page)
     assert "运行命令" in page.inner_text(".steps")
     with page.expect_navigation():
         page.click(".turn-meta a:has-text('详情')")
@@ -242,8 +249,7 @@ def test_a_deck_that_cannot_be_previewed_says_so(logged_in) -> None:
     _start_conversation(page, "帮我做一个 PPT")
     _wait_for_turns(page, 1, seconds=120)
     # the render runs in the background, so its note may land in a later group of steps: open them all
-    for head in page.locator(".steps-head").all():
-        head.click()
+    _open_all_steps(page)
     steps = "\n".join(page.locator(".steps").all_inner_texts())
     assert "读取技能 pptx" in steps and "交付文件" in steps
     # the browser tests run the mock sandbox on the host, which has no LibreOffice to render slides
@@ -396,3 +402,48 @@ def test_the_sidebar_collapses_and_remembers_it(logged_in, stack) -> None:
     page.click(".side-link:has-text('资料库')")
     page.wait_for_url(stack.portal + "/files")
     page.wait_for_selector(".side-link.on:has-text('资料库')")
+
+
+# ------------------------------------------------------------------------------------------ modes, skills, attachments
+
+
+def test_chat_mode_answers_in_words_without_a_sandbox(logged_in, stack) -> None:
+    page = logged_in
+    page.click(".mode-toggle button:has-text('对话')")
+    _start_conversation(page, "在沙箱里执行一条命令")  # would use the sandbox in work mode
+    _wait_for_turns(page, 1)
+    assert "离线演示模型" in page.inner_text(".msg.assistant .md")
+    assert page.locator(".steps").count() == 0
+    assert page.inner_text(".msg.user .attach-chip") == "对话模式"
+    page.goto(stack.portal + "/")
+    page.wait_for_selector(".mode-toggle button.on:has-text('对话')")  # remembered
+
+
+def test_a_skill_button_makes_the_file_with_that_skill(logged_in) -> None:
+    page = logged_in
+    page.click(".skill-chip:has-text('PPT 生成')")
+    page.wait_for_selector(".skill-tag:has-text('PPT 生成')")
+    assert "页数" in page.get_attribute("textarea", "placeholder")
+    _start_conversation(page, "春游活动介绍")  # no "PPT" in the words: the button says it
+    _wait_for_turns(page, 1, seconds=120)
+    _open_all_steps(page)
+    steps = "\n".join(page.locator(".steps").all_inner_texts())
+    assert "已加载技能" in steps and "交付文件" in steps
+    assert "ailab-demo.pptx" in page.inner_text(".file-card")
+    assert page.inner_text(".msg.user .attach-chip") == "PPT 生成"
+    assert page.locator(".skill-tag").count() == 0  # one message only
+
+
+def test_an_attachment_is_read_without_a_sandbox(logged_in, tmp_path) -> None:
+    page = logged_in
+    page.click(".mode-toggle button:has-text('对话')")
+    note = tmp_path / "会议纪要.txt"
+    note.write_text("本周完成了登录改版。下周开始做对话界面。", encoding="utf-8")
+    page.set_input_files(".composer-box input[type=file]", str(note))
+    page.wait_for_selector(".composer-box .attach-chip:has-text('会议纪要.txt')")
+    page.wait_for_function("() => !document.querySelector('.composer-box').innerText.includes('扫描中')", timeout=20000)
+    _start_conversation(page, "总结一下这份纪要")
+    _wait_for_turns(page, 1)
+    assert "我读到了 1 个附件的内容" in page.inner_text(".msg.assistant .md")
+    _open_all_steps(page)
+    assert "已读取附件" in page.inner_text(".steps") and "会议纪要.txt" in page.inner_text(".steps")

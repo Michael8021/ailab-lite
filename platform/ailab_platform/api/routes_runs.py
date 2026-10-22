@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import metrics
+from ..agent.prompts import skills
 from ..catalog import get_catalog
 from ..config import settings
 from ..db import SessionLocal
@@ -59,10 +60,17 @@ def start_run(
     file_ids: list[str],
     title: str | None = None,
     conversation: Conversation | None = None,
+    mode: str = "work",
+    skill: str | None = None,
 ) -> Run:
     """Check the limits, write the run and queue it. Used for standalone runs and conversation turns."""
     if len(prompt) > settings.max_prompt_chars:
         raise HTTPException(status_code=413, detail=f"prompt exceeds {settings.max_prompt_chars} chars")
+    options: dict = {"mode": mode}
+    if skill:
+        if skill not in skills():
+            raise HTTPException(status_code=400, detail=f"unknown skill: {skill}")
+        options = {"mode": "work", "skill": skill}  # a skill is work by definition
 
     catalog = get_catalog()
     model_id = model or catalog.default_id()
@@ -100,6 +108,7 @@ def start_run(
             prompt=prompt,
             model=model_id,
             input_file_ids=inputs,
+            options=options,
         )
         db.add(run)
         if conversation is not None:
@@ -120,7 +129,7 @@ def start_run(
 
 @router.post("/runs", response_model=RunDetail, status_code=status.HTTP_201_CREATED)
 def create_run(body: RunCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    run = start_run(db, user, body.prompt, body.model, body.file_ids, body.title)
+    run = start_run(db, user, body.prompt, body.model, body.file_ids, body.title, mode=body.mode, skill=body.skill)
     return run_dict(db, run, detail=True)
 
 

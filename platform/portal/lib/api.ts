@@ -26,6 +26,7 @@ export type Run = {
   finished_at?: string | null;
   artifacts?: Artifact[];
   input_files?: { file_id: string; filename: string }[];
+  options?: { mode?: "chat" | "work"; skill?: string };
   result?: { previews?: Preview[]; [key: string]: any };
   usage?: { prompt_tokens?: number; completion_tokens?: number; calls?: number };
 };

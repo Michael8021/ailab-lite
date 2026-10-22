@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, Conversation, ConversationDetail, downloadUrl, ModelInfo, Preview, Run, streamRun } from "../../lib/api";
 import { isTerminal } from "../../lib/format";
 import { conversationsChanged } from "../app-shell";
-import Composer from "./composer";
+import Composer, { SendOptions } from "./composer";
 import PreviewPane from "./preview-pane";
 import Turn, { Item, reduceEvent } from "./turn";
 
@@ -128,7 +128,7 @@ export default function Chat({ id }: { id: string | null }) {
   const turns = detail?.turns || [];
   const running = turns.some((t) => !isTerminal(t.status));
 
-  async function send(prompt: string, fileIds: string[]): Promise<boolean> {
+  async function send(prompt: string, fileIds: string[], options: SendOptions = { mode: "work" }): Promise<boolean> {
     setBusy(true);
     setError("");
     try {
@@ -136,7 +136,7 @@ export default function Chat({ id }: { id: string | null }) {
       if (!convId) convId = (await api<Conversation>("/v1/conversations", { method: "POST", body: JSON.stringify({ model }) })).id;
       const run = await api<Run>(`/v1/conversations/${convId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ prompt, model: model || undefined, file_ids: fileIds }),
+        body: JSON.stringify({ prompt, model: model || undefined, file_ids: fileIds, ...options }),
       });
       if (!id) {
         conversationsChanged();

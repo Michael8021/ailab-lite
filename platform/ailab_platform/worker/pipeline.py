@@ -118,6 +118,9 @@ def process_file(file_id: str, platform: PlatformClient | None = None, storage: 
         "excerpt": text[:1000],
     }
     key = f"derived/{file_id}/meta.json"
+    if text:  # the whole extracted text, so a conversation can read an attachment without a sandbox
+        derived["text_key"] = f"derived/{file_id}/text.txt"
+        storage.put_bytes(derived["text_key"], text.encode("utf-8"), "text/plain; charset=utf-8")
     storage.put_bytes(key, json.dumps(derived, ensure_ascii=False, indent=2).encode(), "application/json")
 
     platform.patch_file(
@@ -127,6 +130,7 @@ def process_file(file_id: str, platform: PlatformClient | None = None, storage: 
             "scan": scan,
             "extract": info,
             "derived_key": key,
+            **({"text_key": derived["text_key"]} if text else {}),
             "excerpt": text[:300],
         },
         status="ready",

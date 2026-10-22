@@ -13,6 +13,7 @@ export type Item =
   | { kind: "steps"; steps: Step[] };
 
 const PREVIEWABLE = /\.(pptx|xlsx|docx|pdf)$/i;
+const SKILL_LABEL: Record<string, string> = { pptx: "PPT 生成", xlsx: "Excel 表格" };
 
 function describeTool(name: string, args: any): { label: string; detail?: string } {
   switch (name) {
@@ -101,6 +102,13 @@ export function reduceEvent(items: Item[], event: EventItem): Item[] {
       }
       break;
     }
+    case "agent.skill":
+      note("已加载技能", SKILL_LABEL[p.name] || p.name, "ok");
+      break;
+    case "agent.attachments":
+      for (const f of p.files || [])
+        note("已读取附件", `${f.filename}（${f.chars} 字${f.truncated ? "，内容较长，只读了开头部分" : ""}）`, "ok");
+      break;
     case "agent.sandbox":
       note("沙箱已就绪");
       break;
@@ -146,12 +154,17 @@ function Steps({ steps, open: openByDefault }: { steps: Step[]; open: boolean })
   const [open, setOpen] = useState<boolean | null>(null);
   const shown = open ?? openByDefault;
   const running = steps.some((s) => s.status === "running");
-  const work = steps.filter((s) => s.status !== "note").length;
+  // tool calls are work; platform notes (event names such as agent.attachments) and thinking are not
+  const work = steps.filter((s) => s.status !== "note" && s.name !== "thinking" && !s.name.includes(".")).length;
   return (
     <div className={`steps ${shown ? "open" : ""}`}>
       <button className="steps-head" onClick={() => setOpen(!shown)} aria-expanded={shown}>
         <span className={`dot ${running ? "spin" : "done"}`} />
-        {running ? steps.filter((s) => s.status === "running").map((s) => s.label).join("、") + "…" : `执行了 ${work || steps.length} 个步骤`}
+        {running
+          ? steps.filter((s) => s.status === "running").map((s) => s.label).join("、") + "…"
+          : work
+            ? `执行了 ${work} 个步骤`
+            : [...new Set(steps.map((s) => s.label))].join("、")}
         <span className="chev">{shown ? "▾" : "▸"}</span>
       </button>
       {shown ? (
@@ -212,6 +225,11 @@ export default function Turn({
     <div className="turn">
       <div className="msg user">
         <div className="bubble">{run.prompt}</div>
+        {run.options?.skill || run.options?.mode === "chat" ? (
+          <div className="attach-row">
+            <span className="attach-chip">{run.options?.skill ? SKILL_LABEL[run.options.skill] || run.options.skill : "对话模式"}</span>
+          </div>
+        ) : null}
         {run.input_files?.length ? (
           <div className="attach-row">
             {run.input_files.map((f) => (

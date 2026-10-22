@@ -2,9 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized } from "../../lib/api";
-import { IconFile, IconSend } from "../icons";
+import { IconChart, IconFile, IconSend, IconSheet, IconSlides } from "../icons";
 
 type Attachment = { id: string; filename: string; status: string };
+export type Mode = "chat" | "work";
+export type SendOptions = { mode: Mode; skill?: string };
+
+// What the skill buttons ask for. `skill` is the platform skill that gets preloaded for the model.
+const SKILLS = [
+  { key: "ppt", skill: "pptx", label: "PPT 生成", Icon: IconSlides, placeholder: "说说主题、页数和给谁看，比如：给新员工介绍公司的 10 页 PPT" },
+  { key: "excel", skill: "xlsx", label: "Excel 表格", Icon: IconSheet, placeholder: "说说表里要有什么，比如：三个区域 7～9 月销售额，带合计和柱状图" },
+  { key: "data", skill: "xlsx", label: "数据分析", Icon: IconChart, placeholder: "上传数据文件（Excel / CSV），说说想分析什么、要什么图表" },
+];
+
+const MODE_HINT: Record<Mode, string> = {
+  chat: "只用文字回答，不启动沙箱，更快更省",
+  work: "需要时可以做文件、跑代码（启动沙箱）",
+};
 
 export default function Composer({
   models,
@@ -22,7 +36,7 @@ export default function Composer({
   onModel: (id: string) => void;
   busy: boolean;
   running: boolean;
-  onSend: (prompt: string, fileIds: string[]) => Promise<boolean>;
+  onSend: (prompt: string, fileIds: string[], options: SendOptions) => Promise<boolean>;
   onStop: () => void;
   autoFocus?: boolean;
   placeholder?: string;
@@ -30,7 +44,25 @@ export default function Composer({
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
+  const [mode, setModeState] = useState<Mode>("work");
+  const [picked, setPicked] = useState<(typeof SKILLS)[number] | null>(null);
   const area = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (localStorage.getItem("ailab.mode") === "chat") setModeState("chat");
+  }, []);
+
+  function setMode(next: Mode) {
+    setModeState(next);
+    localStorage.setItem("ailab.mode", next);
+    if (next === "chat") setPicked(null); // a skill makes files: that is work
+  }
+
+  function pick(s: (typeof SKILLS)[number]) {
+    setPicked(picked?.key === s.key ? null : s);
+    if (mode === "chat") setMode("work");
+    area.current?.focus();
+  }
   const picker = useRef<HTMLInputElement | null>(null);
 
   // grow with the text, up to a limit
@@ -77,11 +109,13 @@ export default function Composer({
     if (!canSend) return;
     const ok = await onSend(
       text.trim(),
-      files.filter((f) => f.status === "ready").map((f) => f.id)
+      files.filter((f) => f.status === "ready").map((f) => f.id),
+      picked ? { mode: "work", skill: picked.skill } : { mode }
     );
     if (ok) {
       setText("");
       setFiles([]);
+      setPicked(null); // a skill is for one message; the mode stays
     }
   }
 
@@ -100,12 +134,22 @@ export default function Composer({
           ))}
         </div>
       ) : null}
+      {picked ? (
+        <div className="skill-tag-row">
+          <span className="skill-tag">
+            <picked.Icon size={14} /> {picked.label}
+            <button className="link" aria-label={`取消 ${picked.label}`} onClick={() => setPicked(null)}>
+              ✕
+            </button>
+          </span>
+        </div>
+      ) : null}
       <textarea
         ref={area}
         rows={1}
         autoFocus={autoFocus}
         aria-label="消息"
-        placeholder={placeholder || "输入消息，Enter 发送，Shift + Enter 换行"}
+        placeholder={picked?.placeholder || (mode === "chat" ? "直接提问（对话模式：只回答，不做文件）" : placeholder || "输入消息，Enter 发送，Shift + Enter 换行")}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -117,10 +161,33 @@ export default function Composer({
         }}
       />
       <div className="composer-tools">
-        <button className="link" onClick={() => picker.current?.click()} title="添加附件" aria-label="添加附件">
-          📎 附件
+        <button className="icon-btn plus" onClick={() => picker.current?.click()} title="添加附件" aria-label="添加附件">
+          ＋
         </button>
+        <div className="mode-toggle" role="radiogroup" aria-label="模式">
+          {(["chat", "work"] as Mode[]).map((m) => (
+            <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} title={MODE_HINT[m]} onClick={() => setMode(m)}>
+              {m === "chat" ? "对话" : "工作"}
+            </button>
+          ))}
+        </div>
+        {mode === "work"
+          ? SKILLS.map((s) => (
+              <button
+                key={s.key}
+                className={`skill-chip ${picked?.key === s.key ? "on" : ""}`}
+                onClick={() => pick(s)}
+                aria-pressed={picked?.key === s.key}
+                aria-label={s.label}
+                title={s.label}
+              >
+                <s.Icon size={14} /> <span className="chip-label">{s.label}</span>
+              </button>
+            ))
+          : null}
         <input ref={picker} type="file" multiple hidden onChange={(e) => e.target.files?.length && upload(e.target.files)} />
+        <span className="spacer" />
+        <span className="composer-right">
         <select value={model} aria-label="模型" onChange={(e) => onModel(e.target.value)}>
           {models.map((m) => (
             <option key={m.id} value={m.id}>
@@ -129,7 +196,6 @@ export default function Composer({
             </option>
           ))}
         </select>
-        <span className="spacer" />
         {error ? <span className="error hint">{error}</span> : null}
         {running ? (
           <button className="secondary" onClick={onStop}>
@@ -137,9 +203,10 @@ export default function Composer({
           </button>
         ) : (
           <button onClick={send} disabled={!canSend} aria-label="发送">
-            <IconSend size={16} /> 发送
+            <IconSend size={16} /> <span className="send-label">发送</span>
           </button>
         )}
+        </span>
       </div>
     </div>
   );

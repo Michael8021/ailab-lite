@@ -22,7 +22,7 @@ from ..config import settings
 from ..llm import INVALID_ARGUMENTS_KEY, LLMClient, llm_for
 from ..models import RunStatus
 from ..paths import OUTPUTS
-from .prompts import history_messages, system_prompt, user_prompt
+from .prompts import history_messages, system_prompt_for, user_prompt
 from .tools import SANDBOX_TOOLS, ToolError, execute_tool, tool_result_message, tools_for_turn
 
 log = logging.getLogger("ailab.agent")
@@ -354,8 +354,16 @@ class AgentLoop:
         try:
             model = run.get("model") or ""
             llm = self.llm or llm_for(model)  # fails the run early if the model is gone from the catalog
+            options = run.get("options") or {}
+            mode, skill = options.get("mode", "work"), options.get("skill")
+            if skill:
+                await self._event(run_id, "agent.skill", {"name": skill})
+            attached = [f for f in run.get("input_files") or [] if f.get("text")]
+            if attached:
+                files = [{"filename": f["filename"], "chars": f.get("chars"), "truncated": f.get("truncated")} for f in attached]
+                await self._event(run_id, "agent.attachments", {"files": files})
             messages: list[dict] = [
-                {"role": "system", "content": system_prompt()},
+                {"role": "system", "content": system_prompt_for(mode, skill)},
                 *history_messages(run.get("history")),
                 {"role": "user", "content": user_prompt(run["prompt"], run.get("input_files"))},
             ]
@@ -378,7 +386,8 @@ class AgentLoop:
 
             out_of_steps = False
             spec = get_catalog().get(model)
-            offered = None if spec is None or spec.tools else []  # a model without tool calling just chats
+            # chat mode, or a model without tool calling: words only, so never a sandbox
+            offered = [] if mode == "chat" or (spec is not None and not spec.tools) else None
             for step in range(settings.max_agent_steps):
                 if await self._is_canceled(run_id):
                     raise RunCanceled()

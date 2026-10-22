@@ -481,3 +481,27 @@ label.field .hint { display: block; font-weight: 400; margin-top: 4px; }
 }
 .main { background: var(--surface); }
 .main .composer-box { box-shadow: 0 4px 18px -6px rgb(16 24 40 / 14%); }
+
+/* composer: mode toggle and skill buttons */
+.composer-tools .icon-btn.plus { font-size: 18px; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 50%; }
+.mode-toggle { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+.mode-toggle button { background: none; color: var(--muted); border: 0; border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 500; }
+.mode-toggle button:hover { background: none; color: var(--text); }
+.mode-toggle button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); font-weight: 600; }
+.skill-chip { background: none; color: var(--text); border: 1px solid transparent; border-radius: 999px; padding: 4px 10px; font-size: 13px; font-weight: 500; }
+.skill-chip:hover { background: var(--surface-2); color: var(--text); }
+.skill-chip.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.skill-tag-row { padding: 2px 2px 0; }
+.skill-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 4px 2px 8px; }
+.skill-tag .link { padding: 0 4px; font-size: 11px; color: var(--accent); }
+
+.composer-box { container-type: inline-size; }
+.composer-right { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.composer-right select { max-width: 200px; }
+@container (max-width: 640px) {
+  .skill-chip .chip-label { display: none; }  /* icons only; the name is the tooltip */
+  .skill-chip { padding: 5px 7px; }
+  .composer-right select { max-width: 140px; }
+  .composer-right .send-label { display: none; }
+  .composer-right button[aria-label="发送"] { padding: 9px 12px; }
+}

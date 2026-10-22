@@ -46,6 +46,7 @@ def run_dict(db: Session, run: Run, detail: bool = False) -> dict:
         "status": run.status,
         "model": run.model,
         "input_file_ids": run.input_file_ids or [],
+        "options": run.options or {},
         "summary": run.summary,
         "error": run.error,
         "result": run.result or {},
