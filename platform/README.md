@@ -108,9 +108,21 @@ API 令牌 `dev-demo-token`（脚本用）、服务令牌 `dev-service-token`（
 
 ## 账号
 
-Portal 用账号密码登录。第一个账号在 API 启动时由 `AILAB_ADMIN_USERNAME` / `AILAB_ADMIN_PASSWORD` 创建（已存在则不动，
+Portal 用账号密码登录，新用户在登录页**自己注册**（注册完直接登录）。注册方式由 `AILAB_REGISTRATION` 决定
+（`deploy.sh --registration`）：
+
+| 模式 | 谁能注册 |
+|---|---|
+| `open`（默认） | 任何能打开 Portal 的人 |
+| `invite` | 输入正确邀请码的人（`AILAB_INVITE_CODE`，k3s 里在 Secret；`--invite-code`）；没设邀请码等同 closed |
+| `closed` | 不开放，只能由管理员用命令行建号 |
+
+每个来源地址每小时最多 30 次注册尝试（没有反向代理传 `X-Forwarded-For` 时所有人共用 Portal 的地址，所以这只是挡脚本的闸门）。
+Portal 监听公网或局域网时建议用 `invite`。
+
+第一个账号在 API 启动时由 `AILAB_ADMIN_USERNAME` / `AILAB_ADMIN_PASSWORD` 创建（已存在则不动，
 之后改环境变量不会覆盖已改过的密码）；k3s 里用户名是 `admin`，密码是 Secret `platform-secrets` 里随机生成的 `AILAB_ADMIN_PASSWORD`。
-其余账号用命令行管理（没有网页注册，也没有自助找回密码）：
+管理员用命令行管理账号（没有自助找回密码）：
 
 ```bash
 python -m ailab_platform.users add alice        # 交互输入密码；--password-stdin 可从标准输入读
@@ -121,7 +133,8 @@ python -m ailab_platform.users list
 ```
 
 用户名 3–64 位小写字母、数字和 `. _ -`，密码至少 8 个字符。登录后可在「账号设置」页自己改密码（改完所有设备要重新登录）。
-API：`POST /v1/auth/login`、`GET /v1/auth/me`、`POST /v1/auth/logout`、`POST /v1/auth/password`。
+API：`GET /v1/auth/options`（是否开放注册，无需登录）、`POST /v1/auth/register`、`POST /v1/auth/login`、`GET /v1/auth/me`、
+`POST /v1/auth/logout`、`POST /v1/auth/password`。
 
 ## 模型目录（用户选模型，不接触 Key）
 
@@ -150,6 +163,15 @@ default = true
 - 仍保留的通用配置：`AILAB_LLM_MAX_RETRIES`（429/5xx/网络错误重试，默认 2 次，退避 1s、2s…）、
   `AILAB_LLM_TIMEOUT_SECONDS`；`finish_reason=length` 视为失败；工具参数不是合法 JSON 时不执行工具、把原文和错误回给模型重试。
 - DeepSeek V4.x 是思考模型：带工具的多轮对话里必须把上一轮的 `reasoning_content` 原样回传，否则上游返回 400。目录里用 `echo_reasoning = true` 按模型打开（实测 `deepseek-flash` 需要）；`AILAB_LLM_ECHO_REASONING` 是对所有模型的全局开关。
+
+**部署时接自己的模型**：`./deploy.sh --model-base-url URL --model-name 模型名 [--model-key KEY] [--model-label 显示名] [--model-no-tools]`
+生成 `platform/models.local.toml`（不进 git，之后重复部署会沿用；`--models-file platform/models.toml` 回到默认目录），
+Key 存进 Secret 的 `AILAB_KEY_MAIN`。`--models-file FILE` 可以直接给一整份目录（多个模型）。本机开发时 `models.local.toml`
+存在就优先于 `models.toml`。
+
+**思考模型**：模型返回的 `reasoning_content` 会作为 `agent.thinking` 事件流式推给 Portal（"思考中…"，结束后折叠成"已深度思考 N 秒"，
+内容随 Run 保存）。像 DeepSeek V4.x 这样要求把它在工具调用的多轮里**回传**的模型，平台第一次收到这类 400 时会自动打开回传
+（不用手动配 `echo_reasoning`；不支持该字段的接口则一直不发）。模型不支持工具调用时在目录里写 `tools = false`，就只聊天不动手。
 
 本机开发：`models.toml` 随仓库，Key 写在 `platform/.env` 的 `AILAB_KEY_DEEPSEEK=`。
 k3s：`bash scripts/k8s_models.sh` 把目录发布成 ConfigMap `platform-models`（改目录不用重建镜像，会重启 api 和 agent），

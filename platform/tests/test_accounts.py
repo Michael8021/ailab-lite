@@ -196,3 +196,59 @@ def test_users_without_a_password_cannot_log_in() -> None:
         assert user is not None and user.password_hash is None
     with TestClient(app) as c:
         assert c.post("/v1/auth/login", json={"username": "demo", "password": "anything"}).status_code == 401
+
+
+# ---- sign-up ---------------------------------------------------------------------------------------
+
+from ailab_platform.api import routes_auth  # noqa: E402
+
+
+def _register(c: TestClient, name: str, password: str = PASSWORD, **extra):
+    return c.post("/v1/auth/register", json={"username": name, "password": password, **extra})
+
+
+@pytest.fixture()
+def _fresh_signup_throttle(monkeypatch):
+    monkeypatch.setattr(routes_auth, "signup_throttle", LoginThrottle(3, 3600))
+
+
+def test_open_registration_creates_a_logged_in_account(_fresh_signup_throttle) -> None:
+    name = f"new{uuid.uuid4().hex[:8]}"
+    with TestClient(app) as c:
+        assert c.get("/v1/auth/options").json() == {"registration": "open"}
+        r = _register(c, name.upper(), display_name="小明")
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["user"]["username"] == name and body["user"]["display_name"] == "小明"
+        assert c.get("/v1/auth/me", headers=bearer(body["token"])).json()["username"] == name
+        assert login(c, name).status_code == 200
+        again = _register(c, name)
+        assert again.status_code == 409 and "已经被注册" in again.json()["detail"]
+
+
+def test_registration_rules_come_back_in_chinese(_fresh_signup_throttle) -> None:
+    with TestClient(app) as c:
+        assert "用户名" in _register(c, "a b").json()["detail"]
+        assert "8 个字符" in _register(c, f"ok{uuid.uuid4().hex[:6]}", "short").json()["detail"]
+        demo = _register(c, "demo")  # demo@ailab.local belongs to the token user: still "taken"
+        assert demo.status_code == 409
+
+
+def test_invite_and_closed_modes(monkeypatch, _fresh_signup_throttle) -> None:
+    with TestClient(app) as c:
+        monkeypatch.setattr(settings, "registration", "invite")
+        monkeypatch.setattr(settings, "invite_code", "")
+        assert c.get("/v1/auth/options").json()["registration"] == "closed"  # invite with no code: nobody can join
+        monkeypatch.setattr(settings, "invite_code", "lab-2026")
+        assert c.get("/v1/auth/options").json()["registration"] == "invite"
+        assert _register(c, f"i{uuid.uuid4().hex[:8]}", invite_code="wrong").status_code == 403
+        assert _register(c, f"i{uuid.uuid4().hex[:8]}", invite_code=" lab-2026 ").status_code == 201
+        monkeypatch.setattr(settings, "registration", "closed")
+        r = _register(c, f"c{uuid.uuid4().hex[:8]}")
+        assert r.status_code == 403 and "未开放注册" in r.json()["detail"]
+
+
+def test_sign_ups_are_rate_limited_per_address(_fresh_signup_throttle) -> None:
+    with TestClient(app) as c:
+        codes = [_register(c, f"r{uuid.uuid4().hex[:8]}", **{}).status_code for _ in range(4)]
+        assert codes == [201, 201, 201, 429]

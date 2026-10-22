@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     admin_username: str = ""
     admin_password: str = ""
     session_ttl_seconds: int = 8 * 60 * 60
+    # Sign-up on the login page: open (anyone who reaches the Portal) | invite (needs AILAB_INVITE_CODE) | closed
+    registration: str = "open"
+    invite_code: str = ""
+    # per client address. Without a reverse proxy that sets X-Forwarded-For every visitor reaches the API as the
+    # Portal's address, so this is a brake on scripted sign-ups, not a per-person limit.
+    registrations_per_hour: int = 30
     login_max_failures: int = 5  # per username and per client address ...
     login_window_seconds: int = 300  # ... within this many seconds
 
@@ -136,7 +142,9 @@ class Settings(BaseSettings):
 
     @property
     def models_path(self) -> Path:
-        return self.models_file or (BASE_DIR / "models.toml")
+        # models.local.toml: this machine's own catalog (deploy.sh --model-base-url / --models-file), not in git
+        local = BASE_DIR / "models.local.toml"
+        return self.models_file or (local if local.is_file() else BASE_DIR / "models.toml")
 
     def env_file_path(self) -> Path:
         return Path(os.environ.get("AILAB_ENV_FILE", BASE_DIR / ".env"))

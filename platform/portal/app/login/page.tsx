@@ -1,12 +1,21 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import AuthBrand from "../../components/auth-brand";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registration, setRegistration] = useState("closed");
+
+  useEffect(() => {
+    fetch("/api/auth/options")
+      .then((r) => r.json())
+      .then((o) => setRegistration(o.registration || "closed"))
+      .catch(() => undefined);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -33,21 +42,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth">
-      <aside className="auth-brand">
-        <div className="brand">
-          <span className="brand-mark">A</span>
-          AILab
-        </div>
-        <div>
-          <h2>在隔离沙箱里，把任务交给 Agent</h2>
-          <p>描述你要做的事，Agent 会在受限的沙箱里写代码、跑命令、生成文件，产出自动归档到你的资料库。</p>
-        </div>
-        <ul className="auth-points">
-          <li>沙箱默认无网络，代码与数据互相隔离</li>
-          <li>模型由平台统一接入，无需自带 API Key</li>
-          <li>用量按模型倍率折算，每日 / 每月额度一目了然</li>
-        </ul>
-      </aside>
+      <AuthBrand />
 
       <main className="auth-form-side">
         <form className="auth-form" onSubmit={submit}>
@@ -66,7 +61,14 @@ export default function LoginPage() {
             {busy ? "登录中…" : "登录"}
           </button>
           <p className="hint" style={{ marginTop: 16 }}>
-            没有账号或忘记密码，请联系管理员。
+            {registration !== "closed" ? (
+              <>
+                还没有账号？<a href="/register">注册一个</a>
+                {registration === "invite" ? "（需要邀请码）" : ""}。忘记密码请联系管理员。
+              </>
+            ) : (
+              "没有账号或忘记密码，请联系管理员。"
+            )}
           </p>
         </form>
       </main>

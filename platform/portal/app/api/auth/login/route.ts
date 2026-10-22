@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE, isHttps, sameOrigin, UPSTREAM } from "../../../../lib/server";
+import { forwardedFor, sameOrigin, sessionResponse, UPSTREAM } from "../../../../lib/server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,9 +13,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const password = typeof body?.password === "string" ? body.password : "";
   if (!username || !password) return NextResponse.json({ detail: "username and password required" }, { status: 400 });
 
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  const client = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip"); // the visitor, for the API's failed-login throttle
-  if (client) headers["x-forwarded-for"] = client;
+  const headers: Record<string, string> = { "content-type": "application/json", ...forwardedFor(req) };
 
   let upstream: Response;
   try {
@@ -32,13 +30,5 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const { token, expires_in } = await upstream.json();
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE, token, {
-    httpOnly: true, // not readable from JavaScript, so a script injected into the page cannot steal it
-    sameSite: "strict",
-    secure: isHttps(req),
-    path: "/",
-    maxAge: Math.min(Number(expires_in) || 0, 24 * 60 * 60) || 8 * 60 * 60,
-  });
-  return res;
+  return sessionResponse(req, token, expires_in);
 }

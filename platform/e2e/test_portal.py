@@ -322,3 +322,53 @@ def test_an_infected_upload_is_rejected_and_cannot_be_downloaded(logged_in, stac
     page.on("dialog", lambda d: d.accept())
     row.locator("button:has-text('删除')").click()
     page.wait_for_function("(n) => !document.body.innerText.includes(n)", arg=name, timeout=15000)
+
+
+# ------------------------------------------------------------------------------------------ sign-up, thinking
+
+
+def test_a_visitor_can_sign_up_and_lands_logged_in(page, context, stack) -> None:
+    page.goto(stack.portal + "/login")
+    page.click("a:has-text('注册一个')")
+    page.wait_for_url(re.compile(r"/register$"))
+    name = f"u{uuid.uuid4().hex[:8]}"
+    page.fill("input[name=username]", name)
+    page.fill("input[name=display_name]", "新同事")
+    page.fill("input[name=password]", "short")
+    page.fill("input[name=again]", "short")
+    page.click("button[type=submit]")
+    page.wait_for_selector(".alert.error")
+    assert "8 个字符" in page.inner_text(".alert.error")
+    page.fill("input[name=password]", "a-good-password")
+    page.fill("input[name=again]", "a-good-password")
+    page.click("button[type=submit]")
+    page.wait_for_selector(".user-chip:has-text('新同事')", timeout=15000)
+    cookie = next(c for c in context.cookies() if c["name"] == "ailab_token")
+    assert cookie["httpOnly"] is True
+    # the same name cannot be taken twice
+    other = page.context.browser.new_context()
+    try:
+        p2 = other.new_page()
+        p2.goto(stack.portal + "/register")
+        p2.fill("input[name=username]", name)
+        p2.fill("input[name=password]", "another-password")
+        p2.fill("input[name=again]", "another-password")
+        p2.click("button[type=submit]")
+        p2.wait_for_selector(".alert.error")
+        assert "已经被注册" in p2.inner_text(".alert.error")
+    finally:
+        other.close()
+
+
+def test_the_models_thinking_is_shown_and_folds_away(logged_in) -> None:
+    page = logged_in
+    _start_conversation(page, "你好呀")
+    _wait_for_turns(page, 1)
+    head = page.locator(".thinking-head")
+    head.wait_for(timeout=15000)
+    assert "已深度思考" in head.inner_text()
+    assert page.locator(".thinking-body").count() == 0  # folded once the answer is there
+    head.click()
+    assert "离线演示模型" in page.inner_text(".thinking-body")
+    page.reload()  # kept with the run, not only in the live stream
+    page.wait_for_selector(".thinking-head")

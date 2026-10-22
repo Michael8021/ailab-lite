@@ -11,8 +11,19 @@
 
 ```bash
 git clone https://github.com/shijunan126-creator/ailab-lite && cd ailab-lite
-sudo ./deploy.sh --model-key sk-xxxxxxxx     # 不带 --model-key 也行：先用"离线演示"模型体验完整链路
+sudo ./deploy.sh --model-key sk-xxxxxxxx     # 默认接 DeepSeek V4.1 Flash；不带 --model-key 也行：先用"离线演示"模型体验完整链路
+
+# 换成任何 OpenAI 兼容接口（OpenAI、通义、Kimi、vLLM、Ollama、自建网关……）：
+sudo ./deploy.sh --model-base-url https://dashscope.aliyuncs.com/compatible-mode/v1 --model-name qwen-plus \
+                 --model-key sk-xxxxxxxx --model-label "通义千问 Plus"
+sudo ./deploy.sh --model-base-url http://10.0.0.5:8000/v1 --model-name Qwen/Qwen3-32B   # 本地 vLLM，无需 Key
+# 多个模型：--models-file my-models.toml（格式见 platform/models.toml）
+
+# 注册：默认开放，任何能打开 Portal 的人都能注册；也可以要邀请码或关闭
+sudo ./deploy.sh --skip-build --registration invite --invite-code 你的邀请码
 ```
+
+部署时会先用给定的地址、模型名和 Key 试调一次模型，地址写错或 Key 不对当场就能发现。
 
 脚本会依次：检查前置条件 → 构建沙箱镜像（缺则构建，首次要几分钟）和平台镜像并导入 k3s →
 启动 OpenSandbox → 生成随机令牌和 Secret → 发布模型目录 → 部署 5 个服务 → 构建并启动 Portal → 冒烟测试

@@ -1,6 +1,6 @@
 // Server-side only (route handlers, proxy.ts). Nothing here may be imported by client components:
 // the access token lives in an httpOnly cookie and must never reach the browser's JavaScript.
-import type { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const COOKIE = "ailab_token";
 export const COOKIE_MAX_AGE = 8 * 60 * 60;
@@ -23,4 +23,23 @@ export function sameOrigin(req: NextRequest): boolean {
   } catch {
     return false;
   }
+}
+
+/** Turn the API's {token, expires_in} into the httpOnly session cookie (login and sign-up). */
+export function sessionResponse(req: NextRequest, token: string, expiresIn: number) {
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(COOKIE, token, {
+    httpOnly: true, // not readable from JavaScript, so a script injected into the page cannot steal it
+    sameSite: "strict",
+    secure: isHttps(req),
+    path: "/",
+    maxAge: Math.min(Number(expiresIn) || 0, 24 * 60 * 60) || 8 * 60 * 60,
+  });
+  return res;
+}
+
+/** The visitor's address for the API's throttles, when a reverse proxy in front of the Portal provides it. */
+export function forwardedFor(req: NextRequest): Record<string, string> {
+  const client = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
+  return client ? { "x-forwarded-for": client } : {};
 }

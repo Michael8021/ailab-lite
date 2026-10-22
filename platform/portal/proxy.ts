@@ -11,4 +11,4 @@ export function proxy(req: NextRequest) {
   return NextResponse.rewrite(new URL("/login", req.url));
 }
 
-export const config = { matcher: ["/((?!login|api|_next|favicon.ico).*)"] };
+export const config = { matcher: ["/((?!login|register|api|_next|favicon.ico).*)"] };

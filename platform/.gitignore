@@ -11,3 +11,4 @@ node_modules/
 htmlcov/
 .ruff_cache/
 e2e-logs/
+models.local.toml

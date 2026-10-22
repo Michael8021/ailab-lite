@@ -104,6 +104,7 @@ spec:
           command: ["uvicorn", "ailab_platform.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           ports: [{containerPort: 8080}]
           volumeMounts:
@@ -171,6 +172,7 @@ spec:
           command: ["uvicorn", "ailab_platform.broker.main:app", "--host", "0.0.0.0", "--port", "8081"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: AILAB_API_BASE_URL
@@ -207,6 +209,7 @@ spec:
           command: ["uvicorn", "ailab_platform.agent.main:app", "--host", "0.0.0.0", "--port", "8082"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: HOST_IP
@@ -258,6 +261,7 @@ spec:
           command: ["uvicorn", "ailab_platform.worker.main:app", "--host", "0.0.0.0", "--port", "8083"]
           envFrom:
             - configMapRef: {name: platform-config}
+            - configMapRef: {name: platform-auth, optional: true}  # AILAB_REGISTRATION, set by deploy.sh --registration
             - secretRef: {name: platform-secrets}
           env:
             - name: AILAB_API_BASE_URL
