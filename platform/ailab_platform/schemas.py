@@ -194,6 +194,11 @@ class CommitOut(BaseModel):
     download_url: str = ""
 
 
+class RunStateOut(BaseModel):
+    status: str
+    finished_at: datetime | None = None
+
+
 class RunStatusIn(BaseModel):
     status: str
     summary: str | None = None

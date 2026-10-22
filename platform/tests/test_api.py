@@ -43,6 +43,10 @@ def test_run_lifecycle_and_events() -> None:
         assert internal.status_code == 200
         assert internal.json()["id"] == run["id"]
 
+        state = c.get(f"/internal/runs/{run['id']}/state", headers=SERVICE)
+        assert state.status_code == 200
+        assert state.json()["status"] == "queued"
+
         canceled = c.post(f"/v1/runs/{run['id']}/cancel", headers=AUTH)
         assert canceled.status_code == 200
         assert canceled.json()["status"] == "canceled"

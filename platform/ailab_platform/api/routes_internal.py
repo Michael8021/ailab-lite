@@ -31,6 +31,7 @@ from ..schemas import (
     FilePatch,
     InternalRunDetail,
     RunDetail,
+    RunStateOut,
     RunStatusIn,
     UsageIn,
 )
@@ -129,6 +130,13 @@ def internal_get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
         None,
     )
     return out
+
+
+@router.get("/runs/{run_id}/state", response_model=RunStateOut)
+def internal_run_state(run_id: str, db: Session = Depends(get_db)) -> dict:
+    """The cheap status poll the Agent uses while a command/model call is running."""
+    run = _run_or_404(db, run_id)
+    return {"status": run.status, "finished_at": run.finished_at}
 
 
 @router.post("/runs/{run_id}/status", response_model=RunDetail)

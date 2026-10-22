@@ -63,6 +63,9 @@ class _PlatformApi(_Service):
     def _get_run(self, run_id: str) -> Request:
         return self._req("GET", f"/internal/runs/{run_id}")
 
+    def _get_run_state(self, run_id: str) -> Request:
+        return self._req("GET", f"/internal/runs/{run_id}/state", timeout=10)
+
     def _set_run_status(self, run_id, status, summary=None, error=None, result=None) -> Request:
         body = {"status": status, "summary": summary, "error": error, "result": result}
         return self._req("POST", f"/internal/runs/{run_id}/status", json=body)
@@ -137,6 +140,9 @@ class AsyncPlatformClient(_PlatformApi):
 
     async def get_run(self, run_id: str) -> dict:
         return (await self._send(self._get_run(run_id))).json()
+
+    async def get_run_state(self, run_id: str) -> dict:
+        return (await self._send(self._get_run_state(run_id))).json()
 
     async def set_run_status(self, run_id, status, summary=None, error=None, result=None) -> dict:
         return (await self._send(self._set_run_status(run_id, status, summary, error, result))).json()

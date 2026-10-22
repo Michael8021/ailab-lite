@@ -119,7 +119,8 @@ class AgentLoop:
         """True if the user canceled. A failed check counts as "not canceled": one API
         hiccup must not fail a run whose task is fine."""
         try:
-            return (await self.platform.get_run(run_id))["status"] == RunStatus.CANCELED
+            # the light /state endpoint, not the full run with artifacts and usage: this runs every couple of seconds
+            return (await self.platform.get_run_state(run_id))["status"] == RunStatus.CANCELED
         except Exception:
             log.warning("cancel check failed for %s; assuming not canceled", run_id, exc_info=True)
             return False

@@ -21,6 +21,10 @@ class FakePlatform:
         self.statuses.append((status, kw))
         return {}
 
+    async def get_run_state(self, run_id):
+        # through get_run, so the fakes below that change a run's status (cancel, API errors) apply here too
+        return {"status": (await self.get_run(run_id))["status"]}
+
     async def append_event(self, run_id, type_, payload=None):
         self.events.append((type_, payload or {}))
 
@@ -479,3 +483,23 @@ def test_a_model_without_tool_calling_is_offered_no_tools(monkeypatch) -> None:
 
     _run(Recording([LLMResponse(content="hi")]))
     assert offered == [[]]
+
+
+def test_cancel_checks_use_the_light_state_endpoint() -> None:
+    class Counting(FakePlatform):
+        def __init__(self) -> None:
+            super().__init__()
+            self.full, self.light = 0, 0
+
+        async def get_run(self, run_id):
+            self.full += 1
+            return await super().get_run(run_id)
+
+        async def get_run_state(self, run_id):
+            self.light += 1
+            return {"status": "running"}
+
+    step = ToolCall(id="c1", name="list_files", arguments={"path": "/workspace"})
+    platform = Counting()
+    _run(ScriptedLLM([LLMResponse(tool_calls=[step]), LLMResponse(content="ok")]), platform=platform)
+    assert platform.light >= 2 and platform.full == 1  # the run is read in full once, at the start
