@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -84,6 +85,7 @@ class Conversation(Base):
     """A chat thread. Each user message starts one Run (a turn); turns share history and a sandbox workspace."""
 
     __tablename__ = "conversations"
+    __table_args__ = (Index("ix_conversations_user_updated", "user_id", "updated_at"),)
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cnv"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -96,6 +98,7 @@ class Conversation(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+    __table_args__ = (Index("ix_runs_user_created", "user_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("run"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -135,6 +138,7 @@ class RunEvent(Base):
 
 class FileObject(Base):
     __tablename__ = "files"
+    __table_args__ = (Index("ix_files_user_created", "user_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("fil"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -165,6 +169,7 @@ class Artifact(Base):
 
 class ModelUsage(Base):
     __tablename__ = "model_usage"
+    __table_args__ = (Index("ix_model_usage_run_created", "run_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True)

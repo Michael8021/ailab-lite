@@ -15,12 +15,21 @@ from .models import ApiToken, User, new_id, utcnow
 
 _is_sqlite = settings.database_url.startswith("sqlite")
 
-engine = create_engine(
-    settings.database_url,
-    future=True,
-    pool_pre_ping=True,
-    connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {},
-)
+_engine_kwargs: dict = {"future": True}
+if _is_sqlite:
+    # SSE polling and ordinary reads share this pool; the old 5+10 default was
+    # exhausted by ~15 concurrent streams. Writes still serialize in SQLite.
+    _engine_kwargs.update(
+        pool_pre_ping=False,  # local file: a dead connection is not a realistic failure mode
+        pool_size=20,
+        max_overflow=10,
+        pool_timeout=5,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+else:
+    _engine_kwargs["pool_pre_ping"] = True
+
+engine = create_engine(settings.database_url, **_engine_kwargs)
 
 if _is_sqlite:
 
@@ -28,8 +37,14 @@ if _is_sqlite:
     def _sqlite_pragmas(dbapi_conn, _):  # pragma: no cover - driver hook
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
+        # WAL + NORMAL: crash-safe against process death; a power loss can lose
+        # the last transactions, which is the right trade-off for the lite profile.
+        cur.execute("PRAGMA synchronous=NORMAL")
         cur.execute("PRAGMA foreign_keys=ON")
+        # SQLite has one writer at a time: under load, waiting for the lock beats failing the write (a status
+        # update or usage record lost as "database is locked"). Keep the generous wait.
         cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA temp_store=MEMORY")
         cur.close()
 
 
