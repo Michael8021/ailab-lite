@@ -4,28 +4,42 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from .models import RunEvent
+from .models import RunEvent, utcnow
 
 
 def append_event(db: Session, run_id: str, type_: str, payload: dict | None = None) -> RunEvent:
-    """Append the next sequenced event for a run.
+    """Append the next sequenced event for a run in one INSERT.
 
-    SQLite has a single writer but internal API calls can still race on
-    ``max(seq)``; the unique constraint plus retry keeps the sequence dense.
+    The sequence is computed by the INSERT's own subquery, so this is one round
+    trip instead of SELECT max(seq) + INSERT + COMMIT + REFRESH. SQLite has a
+    single writer but internal API calls can still race; the unique constraint
+    plus retry keeps the sequence dense.
     """
     last_error: Exception | None = None
     for attempt in range(6):
-        seq = db.scalar(select(func.coalesce(func.max(RunEvent.seq), 0)).where(RunEvent.run_id == run_id)) + 1
-        event = RunEvent(run_id=run_id, seq=seq, type=type_, payload=payload or {})
-        db.add(event)
+        created_at = utcnow()
+        data = payload or {}
+        next_seq = select(func.coalesce(func.max(RunEvent.seq), 0) + 1).where(RunEvent.run_id == run_id).scalar_subquery()
+        stmt = (
+            insert(RunEvent)
+            .values(run_id=run_id, seq=next_seq, type=type_, payload=data, created_at=created_at)
+            .returning(RunEvent.id, RunEvent.seq)
+        )
         try:
+            row = db.execute(stmt).one()
             db.commit()
-            db.refresh(event)
-            return event
+            return RunEvent(
+                id=row.id,
+                run_id=run_id,
+                seq=row.seq,
+                type=type_,
+                payload=data,
+                created_at=created_at,
+            )
         except (IntegrityError, OperationalError) as exc:  # pragma: no cover - race path
             last_error = exc
             db.rollback()
