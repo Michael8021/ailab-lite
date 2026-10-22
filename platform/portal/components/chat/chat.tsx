@@ -2,18 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, Conversation, ConversationDetail, downloadUrl, ModelInfo, Preview, Run, streamRun, Usage } from "../../lib/api";
-import { formatTokens, isTerminal, timeAgo } from "../../lib/format";
+import { api, Conversation, ConversationDetail, downloadUrl, ModelInfo, Preview, Run, streamRun } from "../../lib/api";
+import { isTerminal } from "../../lib/format";
+import { conversationsChanged } from "../app-shell";
 import Composer from "./composer";
 import PreviewPane from "./preview-pane";
 import Turn, { Item, reduceEvent } from "./turn";
-
-const SUGGESTIONS = [
-  { kind: "聊天", text: "用通俗的话解释一下什么是大模型的上下文窗口" },
-  { kind: "演示文稿", text: "帮我做一个 PPT，介绍城市老旧小区改造的背景、做法和成效，8 页左右" },
-  { kind: "表格", text: "做一个 Excel 表格：三个区域 7～9 月的销售额，带合计、环比和柱状图" },
-  { kind: "写作", text: "帮我写一份周报模板，适合技术团队使用" },
-];
 
 function useModels() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -35,57 +29,9 @@ function useModels() {
   return { models, model, setModel };
 }
 
-function Sidebar({ conversations, current, onDelete }: { conversations: Conversation[]; current: string | null; onDelete: (c: Conversation) => void }) {
-  const [usage, setUsage] = useState<Usage | null>(null);
-  useEffect(() => {
-    const load = () => api<Usage>("/v1/usage").then(setUsage).catch(() => setUsage(null));
-    load();
-    const timer = setInterval(load, 30000);
-    return () => clearInterval(timer);
-  }, []);
-  const pct = usage ? Math.min(100, Math.round((usage.daily_tokens.used / Math.max(1, usage.daily_tokens.limit)) * 100)) : 0;
-  return (
-    <aside className="conv-sidebar">
-      <a className="btn new-chat" href="/">
-        ＋ 新对话
-      </a>
-      <nav className="conv-list" aria-label="对话列表">
-        {conversations.length === 0 ? <div className="hint conv-empty">还没有对话</div> : null}
-        {conversations.map((c) => (
-          <div key={c.id} className={`conv-item ${c.id === current ? "on" : ""}`}>
-            <a href={`/c/${c.id}`} title={c.title}>
-              <span className="conv-title">{c.title || "新对话"}</span>
-              <span className="conv-time">
-                {c.last_status === "running" || c.last_status === "queued" ? "回答中…" : timeAgo(c.updated_at)}
-              </span>
-            </a>
-            <button className="link conv-del" aria-label={`删除 ${c.title}`} onClick={() => onDelete(c)}>
-              ✕
-            </button>
-          </div>
-        ))}
-      </nav>
-      {usage ? (
-        <div className="usage-mini" title="Token 按模型倍率折算">
-          <div className="meter-head">
-            <span>今日额度已用 {pct}%</span>
-            <span>
-              {formatTokens(usage.daily_tokens.used)} / {formatTokens(usage.daily_tokens.limit)}
-            </span>
-          </div>
-          <div className="meter-bar">
-            <div className={`meter-fill ${pct >= 100 ? "full" : pct >= 80 ? "warn" : ""}`} style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-      ) : null}
-    </aside>
-  );
-}
-
 export default function Chat({ id }: { id: string | null }) {
   const router = useRouter();
   const { models, model, setModel } = useModels();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [items, setItems] = useState<Record<string, Item[]>>({}); // run id -> live items (runs streamed in this page)
   const [livePreviews, setLivePreviews] = useState<Preview[]>([]);
@@ -97,7 +43,6 @@ export default function Chat({ id }: { id: string | null }) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
 
-  const loadList = useCallback(() => api<Conversation[]>("/v1/conversations").then(setConversations).catch(() => undefined), []);
   const loadDetail = useCallback(async () => {
     if (!id) return null;
     try {
@@ -131,17 +76,13 @@ export default function Chat({ id }: { id: string | null }) {
         () => {
           setStreaming(null);
           loadDetail();
-          loadList();
+          conversationsChanged();
         }
       ).catch(() => setStreaming(null));
       return controller;
     },
-    [loadDetail, loadList]
+    [loadDetail]
   );
-
-  useEffect(() => {
-    loadList();
-  }, [loadList]);
 
   // open a conversation: load it, and follow its last turn if that is still being answered
   useEffect(() => {
@@ -198,13 +139,14 @@ export default function Chat({ id }: { id: string | null }) {
         body: JSON.stringify({ prompt, model: model || undefined, file_ids: fileIds }),
       });
       if (!id) {
+        conversationsChanged();
         router.push(`/c/${convId}`);
         return true;
       }
       setDetail((d) => (d ? { ...d, turns: [...d.turns, run] } : d));
       stick.current = true;
       follow(run);
-      loadList();
+      conversationsChanged();
       return true;
     } catch (err: any) {
       setError(String(err?.message || err).replace(/^409 .*/, "上一条消息还在回答中，请稍候或先停止它"));
@@ -218,13 +160,6 @@ export default function Chat({ id }: { id: string | null }) {
     const active = turns.find((t) => !isTerminal(t.status));
     if (active) await api(`/v1/runs/${active.id}/cancel`, { method: "POST" }).catch(() => undefined);
     loadDetail();
-  }
-
-  async function remove(c: Conversation) {
-    if (!confirm(`删除对话「${c.title || "新对话"}」？（产出的文件仍保留在资料库）`)) return;
-    await api(`/v1/conversations/${c.id}`, { method: "DELETE" }).catch(() => undefined);
-    if (c.id === id) router.push("/");
-    else loadList();
   }
 
   const showPane = paneOpen && previews.length > 0;
@@ -244,24 +179,17 @@ export default function Chat({ id }: { id: string | null }) {
 
   return (
     <div className={`chat-layout ${showPane ? "with-preview" : ""}`}>
-      <Sidebar conversations={conversations} current={id} onDelete={remove} />
-
       <section className="chat-main">
         {!id ? (
-          <div className="chat-home">
-            <h1>今天想让 AILab 做点什么？</h1>
-            <p className="muted">直接提问，或者让它在隔离沙箱里帮你做 PPT、Excel、处理文件。做出来的文件会在右侧实时预览，可以接着对话修改。</p>
-            {composer}
-            {error ? <div className="alert error">{error}</div> : null}
-            <div className="suggestions">
-              {SUGGESTIONS.map((s) => (
-                <button key={s.text} className="suggestion secondary" disabled={busy || !model} onClick={() => send(s.text, [])}>
-                  <small>{s.kind}</small>
-                  {s.text}
-                </button>
-              ))}
+          <>
+            <div className="chat-home">
+              <h1>有什么我能帮你的吗？</h1>
             </div>
-          </div>
+            <div className="composer-dock">
+              {error ? <div className="alert error">{error}</div> : null}
+              {composer}
+            </div>
+          </>
         ) : (
           <>
             <div

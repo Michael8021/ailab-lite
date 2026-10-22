@@ -114,7 +114,8 @@ def test_the_proxy_exposes_only_v1_and_refuses_cross_site_writes(page, context, 
 def test_logout_ends_the_session_on_the_server_too(logged_in, context, stack) -> None:
     page = logged_in
     token = next(c for c in context.cookies() if c["name"] == "ailab_token")["value"]
-    page.click("text=退出")
+    page.click(".user-chip")  # the account menu at the bottom of the sidebar
+    page.click("text=退出登录")
     page.wait_for_selector("input[type=password]")
     page.goto(stack.portal + "/")
     page.wait_for_selector("input[type=password]")
@@ -126,6 +127,7 @@ def test_the_signed_in_user_is_shown_and_can_open_the_account_page(logged_in, st
     page = logged_in
     page.wait_for_selector(".user-chip:has-text('Administrator')")  # the bootstrap account's display name
     page.click(".user-chip")
+    page.click("text=账号设置")
     page.wait_for_selector("text=修改密码")
     page.wait_for_function("(u) => document.querySelector('main').innerText.includes(u)", arg=USERNAME)
 
@@ -170,6 +172,7 @@ def test_the_workbench_offers_the_platforms_models_and_the_quota(logged_in) -> N
     options = page.eval_on_selector_all("select option", "os => os.map(o => [o.value, o.textContent])")
     assert options == [["test-pro", "Test Pro（消耗 ×3）"], ["test-fast", "Test Fast"]]  # tests/models.test.toml, hidden ones excluded
     assert page.input_value("select") == "test-pro"
+    page.click(".user-chip")  # usage lives in the account menu
     page.wait_for_function("() => document.body.innerText.includes('今日额度已用')", timeout=15000)
     assert "deepseek" not in page.content().lower()
 
@@ -209,6 +212,7 @@ def test_a_task_runs_to_completion_and_its_timeline_streams_in(logged_in) -> Non
     with page.expect_navigation():
         page.click(".turn-meta a:has-text('详情')")
     page.wait_for_function("() => document.body.innerText.includes('run.completed')", timeout=30000)
+    page.wait_for_selector(".chip:has-text('model: test-fast')")  # the run itself loads separately from its events
     body = page.inner_text("body")
     assert "model: test-fast" in body  # the chip next to the title
     for event in ("run.created", "agent.started", "agent.tool_call", "run.completed"):
@@ -372,3 +376,21 @@ def test_the_models_thinking_is_shown_and_folds_away(logged_in) -> None:
     assert "离线演示模型" in page.inner_text(".thinking-body")
     page.reload()  # kept with the run, not only in the live stream
     page.wait_for_selector(".thinking-head")
+
+
+def test_the_sidebar_collapses_and_remembers_it(logged_in, stack) -> None:
+    page = logged_in
+    page.wait_for_selector(".sidebar .side-link:has-text('资料库')")
+    assert page.locator(".topbar").count() == 0  # no top bar: the sidebar carries the navigation
+    assert page.inner_text(".chat-home h1") == "有什么我能帮你的吗？"
+    assert page.locator(".suggestion").count() == 0
+    page.click("button[aria-label='收起侧栏']")
+    page.wait_for_selector(".sidebar", state="hidden")
+    page.reload()
+    page.wait_for_selector("button[aria-label='展开侧栏']")
+    assert not page.locator(".sidebar").is_visible()
+    page.click("button[aria-label='展开侧栏']")
+    page.wait_for_selector(".sidebar", state="visible")
+    page.click(".side-link:has-text('资料库')")
+    page.wait_for_url(stack.portal + "/files")
+    page.wait_for_selector(".side-link.on:has-text('资料库')")
