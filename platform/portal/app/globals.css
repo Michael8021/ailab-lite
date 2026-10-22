@@ -452,3 +452,14 @@ pre.log { background: var(--surface-2); border: 1px solid var(--border); border-
   .preview-pane { position: fixed; inset: 59px 0 0 0; z-index: 30; }
   .messages-inner, .composer-dock, .chat-home { padding-left: 12px; padding-right: 12px; }
 }
+
+/* model thinking (reasoning), shown like the DeepSeek web client */
+.thinking { font-size: 13px; }
+.thinking-head { background: none; border: 0; padding: 4px 10px 4px 8px; color: var(--muted); font-weight: 500; border-radius: 8px; background: var(--surface-2); }
+.thinking-head:hover { background: var(--border); color: var(--text); }
+.thinking-head .chev { font-size: 11px; margin-left: 2px; }
+.think-icon { color: var(--accent); display: inline-block; }
+.think-icon.spin { animation: spin 1.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.thinking-body { margin: 8px 0 2px 4px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border-strong); color: var(--muted); white-space: pre-wrap; line-height: 1.7; max-height: 420px; overflow-y: auto; }
+label.field .hint { display: block; font-weight: 400; margin-top: 4px; }

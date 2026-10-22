@@ -7,7 +7,10 @@ import { IconDownload, IconFile } from "../icons";
 import Markdown from "../markdown";
 
 export type Step = { name: string; label: string; detail?: string; status: "running" | "ok" | "failed" | "note"; output?: string };
-export type Item = { kind: "text"; step: number; text: string } | { kind: "steps"; steps: Step[] };
+export type Item =
+  | { kind: "text"; step: number; text: string }
+  | { kind: "thinking"; step: number; text: string; seconds: number; done: boolean }
+  | { kind: "steps"; steps: Step[] };
 
 const PREVIEWABLE = /\.(pptx|xlsx|docx|pdf)$/i;
 
@@ -44,8 +47,18 @@ function lastSteps(items: Item[]): Step[] {
 export function reduceEvent(items: Item[], event: EventItem): Item[] {
   const p = event.payload || {};
   const next = items.map((it) => (it.kind === "steps" ? { kind: "steps" as const, steps: [...it.steps] } : { ...it }));
+  // anything else the model does means it has stopped thinking
+  if (event.type !== "agent.thinking") for (const it of next) if (it.kind === "thinking") it.done = true;
   const note = (label: string, detail?: string, status: Step["status"] = "note") => lastSteps(next).push({ name: event.type, label, detail, status });
   switch (event.type) {
+    case "agent.thinking": {
+      const last = next[next.length - 1];
+      if (last && last.kind === "thinking" && last.step === p.step) {
+        last.text += p.text || "";
+        last.seconds = p.seconds ?? last.seconds;
+      } else next.push({ kind: "thinking", step: p.step, text: p.text || "", seconds: p.seconds || 0, done: false });
+      break;
+    }
     case "agent.delta": {
       const last = next[next.length - 1];
       if (last && last.kind === "text" && last.step === p.step) last.text += p.text || "";
@@ -98,6 +111,23 @@ export function reduceEvent(items: Item[], event: EventItem): Item[] {
       break;
   }
   return next;
+}
+
+function Thinking({ item, live }: { item: Extract<Item, { kind: "thinking" }>; live: boolean }) {
+  const [open, setOpen] = useState<boolean | null>(null);
+  const thinking = live && !item.done;
+  const shown = open ?? thinking; // open while it thinks, folded afterwards (click to read it again)
+  const seconds = Math.max(1, Math.round(item.seconds));
+  return (
+    <div className={`thinking ${shown ? "open" : ""}`}>
+      <button className="thinking-head" onClick={() => setOpen(!shown)} aria-expanded={shown}>
+        <span className={`think-icon ${thinking ? "spin" : ""}`}>✦</span>
+        {thinking ? "思考中…" : `已深度思考（用时 ${seconds} 秒）`}
+        <span className="chev">{shown ? "▾" : "▸"}</span>
+      </button>
+      {shown ? <div className="thinking-body">{item.text}</div> : null}
+    </div>
+  );
 }
 
 function Steps({ steps, open: openByDefault }: { steps: Step[]; open: boolean }) {
@@ -187,13 +217,18 @@ export default function Turn({
           {shown?.map((it, i) =>
             it.kind === "text" ? (
               it.text.trim() ? <Markdown key={i} text={it.text} /> : null
+            ) : it.kind === "thinking" ? (
+              it.text.trim() ? <Thinking key={i} item={it} live={live} /> : null
             ) : (
               <Steps key={i} steps={it.steps} open={live && i === shown.length - 1} />
             )
           )}
+          {!shown && run.result?.thinking?.text ? (
+            <Thinking item={{ kind: "thinking", step: 0, text: run.result.thinking.text, seconds: run.result.thinking.seconds || 0, done: true }} live={false} />
+          ) : null}
           {/* a finished turn whose streamed text has not arrived (or was never streamed here) shows its stored answer */}
           {(!shown || (terminal && !textShown)) && run.summary ? <Markdown text={run.summary} /> : null}
-          {live && !textShown && !shown?.some((it) => it.kind === "steps") ? (
+          {live && !textShown && !shown?.some((it) => it.kind !== "text") ? (
             <div className="typing" aria-label="思考中">
               <span />
               <span />

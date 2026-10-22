@@ -100,27 +100,15 @@ def test_tool_call_with_invalid_json_is_not_executed() -> None:
     assert llm.seen_messages[1][-2]["tool_calls"][0]["function"]["arguments"].startswith('{"path"')
 
 
-def test_reasoning_is_echoed_only_when_enabled(monkeypatch) -> None:
-    for enabled in (False, True):
-        monkeypatch.setattr(settings, "llm_echo_reasoning", enabled)
-        step = ToolCall(id="c1", name="list_files", arguments={"path": "/nope"})
-        llm = ScriptedLLM([LLMResponse(tool_calls=[step], reasoning_content="why"), LLMResponse(content="x")])
-        _run(llm)
-        assistant = next(m for m in llm.seen_messages[1] if m["role"] == "assistant")
-        assert ("reasoning_content" in assistant) is enabled
-
-
-def test_reasoning_is_echoed_for_models_that_ask_for_it(monkeypatch) -> None:
-    from ailab_platform.catalog import Catalog, ModelSpec
-
-    for wants in (False, True):
-        catalog = Catalog([ModelSpec(id="m", name="m", provider="mock", echo_reasoning=wants)])
-        monkeypatch.setattr("ailab_platform.agent.loop.get_catalog", lambda catalog=catalog: catalog)
-        step = ToolCall(id="c1", name="list_files", arguments={"path": "/nope"})
-        llm = ScriptedLLM([LLMResponse(tool_calls=[step], reasoning_content="why"), LLMResponse(content="x")])
-        _run(llm)
-        assistant = next(m for m in llm.seen_messages[1] if m["role"] == "assistant")
-        assert ("reasoning_content" in assistant) is wants
+def test_the_loop_keeps_reasoning_and_streams_thinking_events() -> None:
+    step = ToolCall(id="c1", name="list_files", arguments={"path": "/nope"})
+    llm = ScriptedLLM([LLMResponse(tool_calls=[step], reasoning_content="why " * 10), LLMResponse(content="x", reasoning_content="ok")])
+    platform, _ = _run(llm)
+    assistant = next(m for m in llm.seen_messages[1] if m["role"] == "assistant")
+    assert assistant["reasoning_content"] == "why " * 10  # whether the upstream gets it back is the client's call
+    thinking = [p for t, p in platform.events if t == "agent.thinking"]
+    assert "".join(p["text"] for p in thinking if p["step"] == 0) == "why " * 10
+    assert all("seconds" in p for p in thinking)
 
 
 def test_tool_call_events_do_not_store_huge_arguments() -> None:
@@ -469,3 +457,25 @@ def test_exec_accepts_command_as_well_as_cmd() -> None:
     call = ToolCall(id="c1", name="exec", arguments={"command": "echo hi"})
     _run(ScriptedLLM([LLMResponse(tool_calls=[call]), LLMResponse(content="ok")]), broker=broker)
     assert seen == ["echo hi"]
+
+
+def test_the_turns_thinking_is_kept_with_the_run() -> None:
+    llm = ScriptedLLM([LLMResponse(content="x", reasoning_content="ponder")])
+    platform, _ = _run(llm)
+    assert platform.statuses[-1][1]["result"]["thinking"]["text"] == "ponder"
+
+
+def test_a_model_without_tool_calling_is_offered_no_tools(monkeypatch) -> None:
+    from ailab_platform.catalog import Catalog, ModelSpec
+
+    catalog = Catalog([ModelSpec(id="m", name="m", provider="mock", tools=False)])
+    monkeypatch.setattr("ailab_platform.agent.loop.get_catalog", lambda: catalog)
+    offered = []
+
+    class Recording(ScriptedLLM):
+        async def chat(self, messages, tools, model, user_id=None):
+            offered.append(tools)
+            return await super().chat(messages, tools, model, user_id)
+
+    _run(Recording([LLMResponse(content="hi")]))
+    assert offered == [[]]

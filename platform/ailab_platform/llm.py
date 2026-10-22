@@ -41,6 +41,7 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     finish_reason: str = "stop"
     reasoning_content: str = ""
+    thinking_seconds: float = 0.0  # filled in by the agent loop from when the reasoning streamed
 
 
 TextSink = Callable[[str], Awaitable[None]]
@@ -51,10 +52,20 @@ class LLMClient:
         raise NotImplementedError
 
     async def chat_stream(
-        self, messages: list[dict], tools: list[dict], model: str, user_id: str | None = None, on_text: TextSink | None = None
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        model: str,
+        user_id: str | None = None,
+        on_text: TextSink | None = None,
+        on_reasoning: TextSink | None = None,
     ) -> LLMResponse:
-        """Like chat(), but hands the answer text to on_text as it is produced. Default: one piece at the end."""
+        """Like chat(), but hands the model's thinking (on_reasoning) and then the answer text (on_text) over as they
+        are produced. Default: in pieces once the whole response is there."""
         response = await self.chat(messages, tools, model, user_id=user_id)
+        if on_reasoning and response.reasoning_content:
+            for i in range(0, len(response.reasoning_content), 24):
+                await on_reasoning(response.reasoning_content[i : i + 24])
         if on_text and response.content:
             step = 24
             for i in range(0, len(response.content), step):
@@ -104,17 +115,18 @@ class _StreamState:
         self.finish = "stop"
         self.emitted = False  # some text already reached the user
 
-    def feed(self, chunk: dict) -> str:
-        """Take one chunk; return the answer text it adds."""
+    def feed(self, chunk: dict) -> tuple[str, str]:
+        """Take one chunk; return the (answer text, thinking) it adds."""
         if chunk.get("error"):  # vLLM reports a failure mid-stream as an error chunk with HTTP 200
             raise LLMError(f"model stream failed: {str(chunk['error'])[:300]}")
         if chunk.get("usage"):
             self.usage = chunk["usage"]
-        text = ""
+        text = thinking = ""
         for choice in chunk.get("choices") or []:
             delta = choice.get("delta") or {}
             if delta.get("reasoning_content"):
                 self.reasoning.append(delta["reasoning_content"])
+                thinking += delta["reasoning_content"]
             if delta.get("content"):
                 self.content.append(delta["content"])
                 text += delta["content"]
@@ -125,7 +137,7 @@ class _StreamState:
                 acc["function"]["name"] += fn.get("name") or ""
                 acc["function"]["arguments"] += fn.get("arguments") or ""
             self.finish = choice.get("finish_reason") or self.finish
-        return text
+        return text, thinking
 
     def response(self) -> LLMResponse:
         if self.finish == "length":
@@ -146,11 +158,29 @@ class OpenAICompatibleClient(LLMClient):
         api_key: str = "",
         upstream_model: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        echo_reasoning: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.upstream_model = upstream_model  # what the upstream calls the model; None = send the id as is
         self._transport = transport
+        # Thinking models (DeepSeek V4.x) reject a tool conversation unless each assistant turn carries its
+        # reasoning_content back; other upstreams may reject the extra field. Off by default, and switched on
+        # for good the first time the upstream asks for it (see _asks_for_reasoning).
+        self.echo_reasoning = echo_reasoning
+
+    def _outgoing(self, messages: list[dict]) -> list[dict]:
+        if self.echo_reasoning:
+            return messages
+        return [{k: v for k, v in m.items() if k != "reasoning_content"} if "reasoning_content" in m else m for m in messages]
+
+    def _asks_for_reasoning(self, exc: LLMError) -> bool:
+        text = str(exc)
+        if self.echo_reasoning or "reasoning_content" not in text or " 400" not in text:
+            return False
+        log.warning("upstream %s wants reasoning_content passed back; echoing it from now on", self.base_url)
+        self.echo_reasoning = True
+        return True
 
     async def _post(self, payload: dict, headers: dict) -> dict:
         """POST with bounded retries on transient failures (429 / 5xx / network)."""
@@ -186,7 +216,7 @@ class OpenAICompatibleClient(LLMClient):
             headers["x-user-id"] = user_id
         payload: dict[str, Any] = {
             "model": self.upstream_model or model,
-            "messages": messages,
+            "messages": self._outgoing(messages),
             "temperature": 0.2,
             "stream": stream,
         }
@@ -198,8 +228,22 @@ class OpenAICompatibleClient(LLMClient):
         return payload, headers
 
     async def chat_stream(
-        self, messages: list[dict], tools: list[dict], model: str, user_id: str | None = None, on_text: TextSink | None = None
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        model: str,
+        user_id: str | None = None,
+        on_text: TextSink | None = None,
+        on_reasoning: TextSink | None = None,
     ) -> LLMResponse:
+        try:
+            return await self._stream_once(messages, tools, model, user_id, on_text, on_reasoning)
+        except LLMError as exc:
+            if self._asks_for_reasoning(exc):
+                return await self._stream_once(messages, tools, model, user_id, on_text, on_reasoning)
+            raise
+
+    async def _stream_once(self, messages, tools, model, user_id, on_text, on_reasoning) -> LLMResponse:
         """Server-sent events. Retried like chat() on transient failures, but only until the first text was passed on:
         after that a retry would show the user the start of the answer twice."""
         payload, headers = self._request(messages, tools, model, user_id, stream=True)
@@ -216,7 +260,10 @@ class OpenAICompatibleClient(LLMClient):
                                     continue
                                 if line[5:].strip() == "[DONE]":
                                     break
-                                text = state.feed(json.loads(line[5:]))
+                                text, thinking = state.feed(json.loads(line[5:]))
+                                if thinking and on_reasoning:
+                                    state.emitted = True
+                                    await on_reasoning(thinking)
                                 if text and on_text:
                                     state.emitted = True
                                     await on_text(text)
@@ -235,8 +282,12 @@ class OpenAICompatibleClient(LLMClient):
         raise AssertionError("unreachable")  # pragma: no cover
 
     async def chat(self, messages: list[dict], tools: list[dict], model: str, user_id: str | None = None) -> LLMResponse:
-        payload, headers = self._request(messages, tools, model, user_id, stream=False)
-        data = await self._post(payload, headers)
+        try:
+            data = await self._post(*self._request(messages, tools, model, user_id, stream=False))
+        except LLMError as exc:
+            if not self._asks_for_reasoning(exc):
+                raise
+            data = await self._post(*self._request(messages, tools, model, user_id, stream=False))
 
         choice = (data.get("choices") or [{}])[0]
         message = choice.get("message") or {}
@@ -334,7 +385,8 @@ class MockLLM(LLMClient):
                 "- 说「做一个 PPT」或「做一个 Excel 表格」可以看到沙箱生成文件和实时预览\n\n"
                 f"> 你刚才说：{prompt[:80]}"
             )
-            return LLMResponse(content=text, usage=usage)
+            thinking = f"用户说：「{prompt[:40]}」。这是离线演示模型，不需要工具，按固定模板直接回答，并提示可以试试做 PPT 或表格。"
+            return LLMResponse(content=text, usage=usage, reasoning_content=thinking)
         if step < len(script):
             name, arguments = script[step]
             response = _call(step, name, arguments)
@@ -351,7 +403,9 @@ def llm_for(model_id: str) -> LLMClient:
         raise LLMError(f"model {model_id!r} is not available")
     if spec.provider == "mock":
         return MockLLM()
-    return OpenAICompatibleClient(spec.base_url, spec.api_key(), spec.upstream_model or spec.id)
+    return OpenAICompatibleClient(
+        spec.base_url, spec.api_key(), spec.upstream_model or spec.id, echo_reasoning=spec.echo_reasoning or settings.llm_echo_reasoning
+    )
 
 
 def reset_llm_cache() -> None:

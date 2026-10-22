@@ -33,6 +33,7 @@ SANDBOX_RETRY_SECONDS = 3.0
 DELTA_FLUSH_SECONDS = 0.25  # how often streamed text is written as an agent.delta event
 DELTA_FLUSH_CHARS = 120
 PREVIEW_AFTER = {"exec", "write_file"}  # tools that can change files in /workspace/outputs
+THINKING_KEEP_CHARS = 20_000  # of the reasoning stored with the run (the events keep all of it)
 WRAP_UP_STEPS = 3  # this many steps before the limit the model is told to finish up
 WRAP_UP_NOTE = "（平台提示：本轮只剩 {n} 次工具调用。请尽快收尾：生成并交付文件，然后用文字回复用户。）"
 OUT_OF_STEPS_NOTE = "（平台提示：本轮的步数已用完。不要再调用工具，直接用文字告诉用户已经完成了什么、还有什么没完成、下一轮可以怎么继续。）"
@@ -53,17 +54,24 @@ class _Turn:
         self.previews: dict[str, dict] = {}  # filename -> latest preview manifest
         self.preview_task: asyncio.Task | None = None
         self.preview_again = False
+        self.thinking: list[str] = []  # the model's reasoning across the turn's steps, kept for the conversation view
+        self.thinking_seconds = 0.0
 
 
 class _DeltaWriter:
-    """Batches streamed text into agent.delta events (one per ~quarter second, not one per token)."""
+    """Batches streamed text into events (one per ~quarter second, not one per token): agent.delta for the answer,
+    agent.thinking for the model's reasoning (with how long it has been thinking)."""
 
-    def __init__(self, loop: AgentLoop, run_id: str, step: int) -> None:
-        self.loop, self.run_id, self.step = loop, run_id, step
+    def __init__(self, loop: AgentLoop, run_id: str, step: int, kind: str = "agent.delta") -> None:
+        self.loop, self.run_id, self.step, self.kind = loop, run_id, step, kind
         self.buffer: list[str] = []
         self.last = time.monotonic()
+        self.started: float | None = None
+        self.seconds = 0.0
 
     async def __call__(self, text: str) -> None:
+        if self.started is None:
+            self.started = time.monotonic()
         self.buffer.append(text)
         if time.monotonic() - self.last >= DELTA_FLUSH_SECONDS or sum(map(len, self.buffer)) >= DELTA_FLUSH_CHARS:
             await self.flush()
@@ -71,13 +79,11 @@ class _DeltaWriter:
     async def flush(self) -> None:
         if self.buffer:
             text, self.buffer = "".join(self.buffer), []
-            await self.loop._event(self.run_id, "agent.delta", {"step": self.step, "text": text})
+            payload = {"step": self.step, "text": text}
+            if self.kind == "agent.thinking":
+                payload["seconds"] = self.seconds = round(time.monotonic() - (self.started or time.monotonic()), 1)
+            await self.loop._event(self.run_id, self.kind, payload)
         self.last = time.monotonic()
-
-
-def _echoes_reasoning(model: str) -> bool:
-    spec = get_catalog().get(model)
-    return settings.llm_echo_reasoning or bool(spec and spec.echo_reasoning)
 
 
 def _arguments_json(arguments: dict) -> str:
@@ -249,20 +255,36 @@ class AgentLoop:
         model_label = metrics.model_label(model)
         call_started = time.perf_counter()
         writer = _DeltaWriter(self, run_id, step)
+        thinker = _DeltaWriter(self, run_id, step, "agent.thinking")
+
+        async def on_text(text: str) -> None:
+            await thinker.flush()  # thinking is over once the answer starts
+            await writer(text)
+
         try:
             response = await self._interruptible(
                 run_id,
-                llm.chat_stream(messages, tools_for_turn() if tools is None else tools, model, user_id=run.get("user_id"), on_text=writer),
+                llm.chat_stream(
+                    messages,
+                    tools_for_turn() if tools is None else tools,
+                    model,
+                    user_id=run.get("user_id"),
+                    on_text=on_text,
+                    on_reasoning=thinker,
+                ),
             )
         except RunCanceled:
             metrics.LLM_CALLS.labels(model_label, "canceled").inc()
+            await thinker.flush()
             await writer.flush()
             raise
         except Exception:
             metrics.LLM_CALLS.labels(model_label, "error").inc()
             metrics.LLM_SECONDS.labels(model_label).observe(time.perf_counter() - call_started)
             raise
+        await thinker.flush()
         await writer.flush()
+        response.thinking_seconds = thinker.seconds
         metrics.LLM_CALLS.labels(model_label, "ok").inc()
         metrics.LLM_SECONDS.labels(model_label).observe(time.perf_counter() - call_started)
         return response
@@ -355,6 +377,8 @@ class AgentLoop:
                     log.warning("usage record failed run=%s", run_id, exc_info=True)
 
             out_of_steps = False
+            spec = get_catalog().get(model)
+            offered = None if spec is None or spec.tools else []  # a model without tool calling just chats
             for step in range(settings.max_agent_steps):
                 if await self._is_canceled(run_id):
                     raise RunCanceled()
@@ -362,8 +386,11 @@ class AgentLoop:
                 if left == WRAP_UP_STEPS and settings.max_agent_steps > 2 * WRAP_UP_STEPS:
                     messages.append({"role": "user", "content": WRAP_UP_NOTE.format(n=left)})
 
-                response = await self._call_model(llm, run_id, run, model, messages, step)
+                response = await self._call_model(llm, run_id, run, model, messages, step, tools=offered)
                 await record(response)
+                if response.reasoning_content:
+                    turn.thinking.append(response.reasoning_content)
+                    turn.thinking_seconds += response.thinking_seconds
 
                 if response.content:
                     final_summary = response.content
@@ -385,7 +412,7 @@ class AgentLoop:
                         for call in response.tool_calls
                     ],
                 }
-                if response.reasoning_content and _echoes_reasoning(model):
+                if response.reasoning_content:  # the client decides whether the upstream gets it back
                     assistant["reasoning_content"] = response.reasoning_content
                 messages.append(assistant)
 
@@ -420,6 +447,9 @@ class AgentLoop:
                 await self._deliver_leftovers(run_id, turn.lease_id, turn.delivered, turn.artifacts)
                 result["workspace_saved"] = await self._save_workspace(turn, run_id)
             result.update(artifacts=turn.artifacts, previews=list(turn.previews.values()))
+            if turn.thinking:
+                text = "\n\n".join(turn.thinking)
+                result["thinking"] = {"text": text[-THINKING_KEEP_CHARS:], "seconds": round(turn.thinking_seconds, 1)}
             if out_of_steps and not turn.artifacts:
                 error = f"agent exceeded {settings.max_agent_steps} steps"  # nothing to show for it: a failure
 
