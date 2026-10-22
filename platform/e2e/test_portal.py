@@ -241,8 +241,10 @@ def test_a_deck_that_cannot_be_previewed_says_so(logged_in) -> None:
     page = logged_in
     _start_conversation(page, "帮我做一个 PPT")
     _wait_for_turns(page, 1, seconds=120)
-    page.click(".steps-head")
-    steps = page.inner_text(".steps")
+    # the render runs in the background, so its note may land in a later group of steps: open them all
+    for head in page.locator(".steps-head").all():
+        head.click()
+    steps = "\n".join(page.locator(".steps").all_inner_texts())
     assert "读取技能 pptx" in steps and "交付文件" in steps
     # the browser tests run the mock sandbox on the host, which has no LibreOffice to render slides
     assert "预览生成失败" in steps or page.locator(".preview-pane img").count() > 0
