@@ -21,8 +21,10 @@ from ..catalog import get_catalog
 from ..config import settings
 from ..deps import get_db, service_auth
 from ..events import append_event
+from ..library import thumbnail_candidate
 from ..locks import user_critical_section
-from ..models import Artifact, FileObject, FileStatus, ModelUsage, Run, RunStatus, User, new_id
+from ..models import Artifact, Conversation, FileObject, FileStatus, ModelUsage, Project, Run, RunStatus, User, new_id
+from ..queue import get_queue
 from ..quota import enforce_library_quota
 from ..run_state import InvalidTransition, transition_run
 from ..schemas import (
@@ -269,6 +271,7 @@ def _commit_artifact(body: ArtifactIn, db: Session, run: Run) -> dict:
     ).first()
     if existing is not None:
         storage.delete(body.staging_key)
+        _enqueue_thumbnail(existing[1])
         return _artifact_out(*existing)
 
     try:
@@ -294,9 +297,14 @@ def _commit_artifact(body: ArtifactIn, db: Session, run: Run) -> dict:
     final_key = f"runs/{run.id}/{file_id}/{filename}"
     storage.copy(body.staging_key, final_key)
 
+    conversation = db.get(Conversation, run.conversation_id, populate_existing=True) if run.conversation_id else None
+    project_id = conversation.project_id if conversation is not None else None
+    if project_id is not None and db.get(Project, project_id) is None:
+        project_id = None
     file = FileObject(
         id=file_id,
         user_id=run.user_id,
+        project_id=project_id,
         filename=filename,
         content_type=body.content_type,
         size=actual_size,
@@ -332,7 +340,16 @@ def _commit_artifact(body: ArtifactIn, db: Session, run: Run) -> dict:
             "download_url": f"/v1/files/{file.id}/content",
         },
     )
+    _enqueue_thumbnail(file)
     return _artifact_out(artifact, file)
+
+
+def _enqueue_thumbnail(file: FileObject) -> None:
+    if file.status == FileStatus.READY and not (file.meta or {}).get("thumb_key") and thumbnail_candidate(file.filename, file.content_type):
+        try:
+            get_queue().enqueue(settings.file_queue, {"file_id": file.id, "thumbnail_only": True})
+        except Exception:
+            log.warning("thumbnail queue unavailable for %s", file.id, exc_info=True)
 
 
 @router.get("/files/{file_id}", response_model=FileOut)

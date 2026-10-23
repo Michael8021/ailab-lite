@@ -24,6 +24,7 @@ from .routes_auth import router as auth_router
 from .routes_conversations import router as conversations_router
 from .routes_files import router as files_router
 from .routes_internal import router as internal_router
+from .routes_projects import router as projects_router
 from .routes_runs import router as runs_router
 from .routes_skills import router as skills_router
 
@@ -77,6 +78,7 @@ app.include_router(runs_router)
 app.include_router(conversations_router)
 app.include_router(skills_router)
 app.include_router(files_router)
+app.include_router(projects_router)
 app.include_router(internal_router)
 
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, api, FileItem, ModelInfo, redirectIfUnauthorized, Skill } from "../../lib/api";
-import { IconChart, IconFile, IconSend, IconSheet, IconSlides, IconSparkles } from "../icons";
+import { api, FileItem, filesByIds, ModelInfo, Skill, uploadFile } from "../../lib/api";
+import { IconChart, IconFile, IconLibrary, IconPlus, IconSend, IconSheet, IconSlides, IconSparkles, IconUpload } from "../icons";
+import LibraryPicker from "../library/library-picker";
 
-type Attachment = { id: string; filename: string; status: string };
+export type Attachment = { id: string; filename: string; status: string };
 export type Mode = "chat" | "work";
 export type SendOptions = { mode: Mode; skill?: string };
 
@@ -32,6 +33,8 @@ export default function Composer({
   onStop,
   autoFocus,
   placeholder,
+  projectId,
+  initialFiles,
 }: {
   models: ModelInfo[];
   model: string;
@@ -42,9 +45,14 @@ export default function Composer({
   onStop: () => void;
   autoFocus?: boolean;
   placeholder?: string;
+  projectId?: string | null; // uploads from here go into this project
+  initialFiles?: Attachment[]; // e.g. "talk about these" from the library
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
+  const [menu, setMenu] = useState(false);
+  const [library, setLibrary] = useState(false);
+  const menuBox = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [mode, setModeState] = useState<Mode>("work");
@@ -77,6 +85,17 @@ export default function Composer({
   }
   const picker = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (initialFiles?.length) setFiles((prev) => [...prev, ...initialFiles.filter((f) => !prev.some((x) => x.id === f.id))]);
+  }, [initialFiles]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => menuBox.current && !menuBox.current.contains(e.target as Node) && setMenu(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menu]);
+
   // grow with the text, up to a limit
   useEffect(() => {
     const el = area.current;
@@ -90,10 +109,10 @@ export default function Composer({
     if (!files.some((f) => f.status === "pending")) return;
     let stale = false;
     const timer = setInterval(async () => {
-      const fresh = await Promise.all(
-        files.map((f) => (f.status === "pending" ? api<FileItem>(`/v1/files/${f.id}`).then((x) => ({ ...f, status: x.status })).catch(() => f) : f))
-      );
-      if (!stale) setFiles((current) => current.map((f) => fresh.find((x) => x.id === f.id) || f));
+      const fresh: FileItem[] = await filesByIds(files.filter((f) => f.status === "pending").map((f) => f.id)).catch(() => []);
+      const status = new Map(fresh.map((x) => [x.id, x.status] as const));
+      // only update chips still on the message: a stale answer must not bring back one the user removed
+      if (!stale) setFiles((current) => current.map((f) => (status.has(f.id) ? { ...f, status: status.get(f.id)! } : f)));
     }, 1500);
     return () => {
       stale = true;
@@ -106,16 +125,12 @@ export default function Composer({
     setUploading(true);
     try {
       for (const file of Array.from(list)) {
-        const form = new FormData();
-        form.append("upload", file);
-        const resp = await fetch(`${API_BASE}/v1/files`, { method: "POST", body: form });
-        redirectIfUnauthorized(resp);
-        if (!resp.ok) {
-          setError(`${file.name}：上传失败（${resp.status}）`);
-          continue;
+        try {
+          const item = await uploadFile(file, projectId);
+          setFiles((prev) => [...prev, { id: item.id, filename: item.filename, status: item.status }]);
+        } catch (err: any) {
+          setError(String(err?.message || err));
         }
-        const item: FileItem = await resp.json();
-        setFiles((prev) => [...prev, { id: item.id, filename: item.filename, status: item.status }]);
       }
     } catch (err: any) {
       setError(String(err?.message || err));
@@ -184,9 +199,35 @@ export default function Composer({
         }}
       />
       <div className="composer-tools">
-        <button className="icon-btn plus" disabled={uploading} onClick={() => picker.current?.click()} title="添加附件" aria-label="添加附件">
-          ＋
-        </button>
+        <div className="plus-menu" ref={menuBox}>
+          <button className="icon-btn plus" disabled={uploading} onClick={() => setMenu(!menu)} title="添加附件" aria-label="添加附件" aria-expanded={menu}>
+            <IconPlus size={16} />
+          </button>
+          {menu ? (
+            <div className="pop-menu" role="menu">
+              <button
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  picker.current?.click();
+                }}
+              >
+                <IconUpload size={16} /> 上传文件
+              </button>
+              <button
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  setLibrary(true);
+                }}
+              >
+                <IconLibrary size={16} /> 从资料库选择
+              </button>
+            </div>
+          ) : null}
+        </div>
         <div className="mode-toggle" role="radiogroup" aria-label="模式">
           {(["chat", "work"] as Mode[]).map((m) => (
             <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} title={MODE_HINT[m]} onClick={() => setMode(m)}>
@@ -218,6 +259,17 @@ export default function Composer({
             ))
           : null}
         <input ref={picker} type="file" multiple hidden onChange={(e) => e.target.files?.length && upload(e.target.files)} />
+        {library ? (
+          <LibraryPicker
+            projectId={projectId}
+            attached={files.map((f) => f.id)}
+            onClose={() => setLibrary(false)}
+            onPick={(picked: FileItem[]) => {
+              setLibrary(false);
+              setFiles((prev) => [...prev, ...picked.filter((f) => !prev.some((x) => x.id === f.id)).map((f) => ({ id: f.id, filename: f.filename, status: f.status }))]);
+            }}
+          />
+        ) : null}
         <span className="spacer" />
         <span className="composer-right">
         <select value={model} aria-label="模型" onChange={(e) => onModel(e.target.value)}>

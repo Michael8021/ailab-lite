@@ -5,7 +5,10 @@ from __future__ import annotations
 import io
 import json
 import logging
+import warnings
 from pathlib import PurePath
+
+from PIL import Image, ImageOps
 
 from .. import skillfiles
 from ..clients import PlatformClient
@@ -16,6 +19,50 @@ log = logging.getLogger("ailab.worker")
 
 TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".xml", ".html", ".log", ".py", ".sh"}
 MAX_TEXT = 200_000
+# Bound both compressed input and decoded pixels; parsing runs only in the Worker.
+MAX_THUMBNAIL_BYTES = 20 * 1024 * 1024
+# Formats decoded at full size (PNG, GIF, WebP...) must fit the Worker's memory. JPEG decodes at down to 1/8
+# scale (draft), so camera photos of 24-48 MP+ cost ~2 MP of pixels; a 16 MP cap for them would skip most photos.
+MAX_DECODED_PIXELS = 16_000_000
+MAX_JPEG_PIXELS = 128_000_000
+Image.MAX_IMAGE_PIXELS = MAX_JPEG_PIXELS
+
+
+def _thumbnail(file_id: str, data: bytes, meta: dict, storage: Storage) -> dict:
+    if (
+        len(data) > MAX_THUMBNAIL_BYTES
+        or (meta.get("content_type") or "").split(";", 1)[0].lower() == "image/svg+xml"
+        or PurePath(meta["filename"]).suffix.lower() == ".svg"
+    ):
+        return {}
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            # Pillow detects raster formats even if the uploader supplied a generic MIME type.
+            with Image.open(io.BytesIO(data)) as source:
+                if source.format in {"EPS", "WMF", "PDF"}:
+                    return {}  # don't launch vector rasterizers such as Ghostscript
+                width, height = source.size
+                if width * height > (MAX_JPEG_PIXELS if source.format == "JPEG" else MAX_DECODED_PIXELS):
+                    return {}
+                source.seek(0)  # animations use their first frame
+                # JPEG can downsample during decoding, before allocating the full raster.
+                source.draft("RGB", (480, 480))
+                # A square bound commutes with EXIF rotations/reflections. Shrink first so
+                # exif_transpose never copies a full decoded 16 MP frame.
+                source.thumbnail((480, 480))
+                with ImageOps.exif_transpose(source) as oriented:
+                    mode = "RGBA" if "A" in oriented.getbands() or "transparency" in oriented.info else "RGB"
+                    with oriented.convert(mode) as converted:
+                        output = io.BytesIO()
+                        converted.save(output, "WEBP", quality=75, method=4)
+        key = f"derived/{file_id}/thumb.webp"
+        storage.put_bytes(key, output.getvalue(), "image/webp")
+        return {"thumb_key": key}
+    except Exception:
+        # Decoding/encoding/storage failures must never change the file's usability.
+        log.debug("thumbnail unavailable for %s", file_id, exc_info=True)
+        return {}
 
 
 def scan_bytes(data: bytes) -> dict:
@@ -95,18 +142,30 @@ def extract(data: bytes, filename: str, content_type: str) -> dict:
     return {"kind": "binary", "chars": 0, "text": "", "bytes": len(data)}
 
 
-def process_file(file_id: str, platform: PlatformClient | None = None, storage: Storage | None = None) -> dict:
+def process_file(
+    file_id: str, platform: PlatformClient | None = None, storage: Storage | None = None, *, thumbnail_only: bool = False
+) -> dict:
     if platform is not None:
-        return _process_file(file_id, platform, storage)
+        return _process_file(file_id, platform, storage, thumbnail_only=thumbnail_only)
     with PlatformClient() as owned:  # holds a connection pool: close it with the file
-        return _process_file(file_id, owned, storage)
+        return _process_file(file_id, owned, storage, thumbnail_only=thumbnail_only)
 
 
-def _process_file(file_id: str, platform: PlatformClient, storage: Storage | None) -> dict:
+def _process_file(file_id: str, platform: PlatformClient, storage: Storage | None, *, thumbnail_only: bool) -> dict:
     from ..storage import get_storage
 
     storage = storage or get_storage()
     meta = platform.get_file(file_id)
+    if thumbnail_only:
+        if meta.get("status") != "ready" or (meta.get("meta") or {}).get("thumb_key"):
+            return {"file_id": file_id, "skipped": meta.get("status")}
+        if meta.get("size", 0) > MAX_THUMBNAIL_BYTES:
+            return {"file_id": file_id, "skipped": "too_large"}
+        data = platform.get_file_bytes(file_id, max_bytes=MAX_THUMBNAIL_BYTES)
+        thumb = _thumbnail(file_id, data, meta, storage)
+        if thumb:
+            platform.patch_file(file_id, meta=thumb)
+        return {"file_id": file_id, **thumb}
     if meta.get("status") != "pending":
         return {"file_id": file_id, "skipped": meta.get("status")}
     data = platform.get_file_bytes(file_id)
@@ -115,6 +174,8 @@ def _process_file(file_id: str, platform: PlatformClient, storage: Storage | Non
     if not scan["ok"]:
         platform.patch_file(file_id, meta={"processing": "rejected", "scan": scan}, status="rejected")
         return {"file_id": file_id, "rejected": scan}
+
+    thumb = _thumbnail(file_id, data, meta, storage)
 
     if len(data) > settings.max_parse_bytes:
         # Office/PDF parsers can use several times the file size. Keep the file
@@ -154,6 +215,7 @@ def _process_file(file_id: str, platform: PlatformClient, storage: Storage | Non
             **({"text_key": derived["text_key"]} if text else {}),
             "excerpt": text[:300],
             **skill,
+            **thumb,
         },
         status="ready",
     )

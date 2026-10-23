@@ -61,6 +61,7 @@ export type Conversation = {
   id: string;
   title: string;
   model: string;
+  project_id?: string | null;
   created_at: string;
   updated_at: string;
   last_status?: string | null;
@@ -111,6 +112,19 @@ export type FileItem = {
   meta: Record<string, any>;
   created_at: string;
   download_url: string;
+  project_id?: string | null;
+  starred?: boolean;
+  thumbnail_url?: string | null; // a small WebP the Worker made; absent for non-images and before processing
+};
+
+/** A project groups conversations and files; deleting it deletes both. */
+export type Project = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  conversations: number;
+  files: number;
 };
 
 export type EventItem = {
@@ -132,6 +146,29 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function downloadUrl(path: string): string {
   return `${API_BASE}${path}`; // same-origin: the session cookie authorizes the download
+}
+
+/** Several files by id in one request (unknown or foreign ids are left out). */
+export function filesByIds(ids: string[]): Promise<FileItem[]> {
+  if (!ids.length) return Promise.resolve([]);
+  const query = ids.map((id) => `ids=${encodeURIComponent(id)}`).join("&");
+  return api<FileItem[]>(`/v1/files?limit=200&${query}`);
+}
+
+/** One zip of several library files, streamed by the platform. */
+export function archiveUrl(ids: string[]): string {
+  return `${API_BASE}/v1/files/archive?${ids.map((id) => `ids=${encodeURIComponent(id)}`).join("&")}`;
+}
+
+/** Upload one file to the library (into a project when given). Throws with the server's reason. */
+export async function uploadFile(file: File, projectId?: string | null): Promise<FileItem> {
+  const form = new FormData();
+  form.append("upload", file);
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  const resp = await fetch(`${API_BASE}/v1/files${query}`, { method: "POST", body: form });
+  redirectIfUnauthorized(resp);
+  if (!resp.ok) throw new Error(`${file.name}：上传失败（${resp.status}）`);
+  return (await resp.json()) as FileItem;
 }
 
 export async function streamRun(

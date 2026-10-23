@@ -2,10 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, Conversation, ConversationDetail, downloadUrl, ModelInfo, Preview, Run, streamRun } from "../../lib/api";
+import { api, Conversation, ConversationDetail, downloadUrl, filesByIds, ModelInfo, Preview, Project, Run, streamRun } from "../../lib/api";
 import { isTerminal } from "../../lib/format";
+import { projectsChanged, useProjects } from "../../lib/projects";
 import { conversationsChanged } from "../app-shell";
-import Composer, { SendOptions } from "./composer";
+import { CONVERSATION_MOVED } from "../conversation-menu";
+import { IconChevronRight, IconFolder } from "../icons";
+import ProjectHome from "../project-home";
+import Composer, { Attachment, SendOptions } from "./composer";
 import PreviewPane from "./preview-pane";
 import Turn, { Item, reduceEvent } from "./turn";
 
@@ -29,8 +33,27 @@ function useModels() {
   return { models, model, setModel };
 }
 
-export default function Chat({ id }: { id: string | null }) {
+/** "Talk about these": the library opens a new chat with ?files=a,b already attached. */
+function useInitialFiles(active: boolean): Attachment[] | undefined {
+  const [files, setFiles] = useState<Attachment[]>();
+  useEffect(() => {
+    if (!active) return;
+    const url = new URL(window.location.href);
+    const ids = (url.searchParams.get("files") || "").split(",").filter(Boolean).slice(0, 50);
+    if (!ids.length) return;
+    url.searchParams.delete("files");
+    window.history.replaceState(null, "", url.pathname + url.search); // a reload must not attach them again
+    filesByIds(ids)
+      .then((list) => setFiles(list.filter((f) => f.status === "ready").map((f) => ({ id: f.id, filename: f.filename, status: f.status }))))
+      .catch(() => undefined);
+  }, [active]);
+  return files;
+}
+
+export default function Chat({ id, project }: { id: string | null; project?: Project | null }) {
   const router = useRouter();
+  const initialFiles = useInitialFiles(!id);
+  const projects = useProjects();
   const { models, model, setModel } = useModels();
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [items, setItems] = useState<Record<string, Item[]>>({}); // run id -> live items (runs streamed in this page)
@@ -116,6 +139,15 @@ export default function Chat({ id }: { id: string | null }) {
     };
   }, [id, loadDetail, follow]);
 
+  useEffect(() => {
+    const moved = (e: Event) => {
+      const { id: moved, project_id } = (e as CustomEvent).detail || {};
+      if (moved === id) setDetail((d) => (d ? { ...d, project_id } : d));
+    };
+    window.addEventListener(CONVERSATION_MOVED, moved);
+    return () => window.removeEventListener(CONVERSATION_MOVED, moved);
+  }, [id]);
+
   // keep the newest message in view while it streams, unless the user scrolled up to read
   useEffect(() => {
     const el = scroller.current;
@@ -147,6 +179,8 @@ export default function Chat({ id }: { id: string | null }) {
     return own.length === 1 && previews.some((p) => p.filename === own[0].filename) ? own[0].filename : null;
   };
   const turns = detail?.turns || [];
+  const projectId = id ? detail?.project_id || null : project?.id || null;
+  const crumb = id && projectId ? projects?.find((p) => p.id === projectId) : null;
   const running = turns.some((t) => !isTerminal(t.status));
 
   async function send(prompt: string, fileIds: string[], options: SendOptions = { mode: "work" }): Promise<boolean> {
@@ -154,13 +188,15 @@ export default function Chat({ id }: { id: string | null }) {
     setError("");
     try {
       let convId = id;
-      if (!convId) convId = (await api<Conversation>("/v1/conversations", { method: "POST", body: JSON.stringify({ model }) })).id;
+      if (!convId)
+        convId = (await api<Conversation>("/v1/conversations", { method: "POST", body: JSON.stringify({ model, project_id: projectId || undefined }) })).id;
       const run = await api<Run>(`/v1/conversations/${convId}/messages`, {
         method: "POST",
         body: JSON.stringify({ prompt, model: model || undefined, file_ids: fileIds, ...options }),
       });
       if (!id) {
         conversationsChanged();
+        if (projectId) projectsChanged();
         router.push(`/c/${convId}`);
         return true;
       }
@@ -194,14 +230,18 @@ export default function Chat({ id }: { id: string | null }) {
       onSend={send}
       onStop={stop}
       autoFocus
-      placeholder={id ? "继续对话，比如「第三页换成图表」「再加一列占比」" : undefined}
+      placeholder={id ? "继续对话，比如「第三页换成图表」「再加一列占比」" : project ? `在「${project.name}」里开始新对话` : undefined}
+      projectId={projectId}
+      initialFiles={initialFiles}
     />
   );
 
   return (
     <div className={`chat-layout ${showPane ? "with-preview" : ""}`}>
       <section className="chat-main">
-        {!id ? (
+        {!id && project ? (
+          <ProjectHome project={project} composer={composer} error={error} />
+        ) : !id ? (
           <>
             <div className="chat-home">
               <h1>有什么我能帮你的吗？</h1>
@@ -213,6 +253,15 @@ export default function Chat({ id }: { id: string | null }) {
           </>
         ) : (
           <>
+            {crumb ? (
+              <div className="chat-crumb">
+                <a href={`/p/${crumb.id}`}>
+                  <IconFolder size={15} /> {crumb.name}
+                </a>
+                <IconChevronRight size={14} />
+                <span>{detail?.title || "新对话"}</span>
+              </div>
+            ) : null}
             <div
               className="messages"
               ref={scroller}

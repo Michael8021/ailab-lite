@@ -11,6 +11,8 @@ from ..models import Artifact, FileObject, ModelUsage, Run
 def file_dict(file: FileObject) -> dict:
     return {
         "id": file.id,
+        "project_id": file.project_id,
+        "starred": file.starred_at is not None,
         "filename": file.filename,
         "content_type": file.content_type,
         "size": file.size,
@@ -20,6 +22,7 @@ def file_dict(file: FileObject) -> dict:
         "meta": file.meta or {},
         "created_at": file.created_at,
         "download_url": f"/v1/files/{file.id}/content",
+        "thumbnail_url": f"/v1/files/{file.id}/thumbnail" if (file.meta or {}).get("thumb_key") else None,
     }
 
 

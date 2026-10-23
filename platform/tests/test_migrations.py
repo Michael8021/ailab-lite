@@ -207,3 +207,48 @@ def test_a_database_that_ran_user_settings_as_0006_is_repaired(tmp_path) -> None
     assert _version(eng) == _head()
     assert "ix_runs_user_created" in {i["name"] for i in inspect(eng).get_indexes("runs")}
     eng.dispose()
+
+
+def test_projects_upgrade_and_downgrade_preserve_referenced_rows(tmp_path) -> None:
+    eng = _sqlite_like_production(tmp_path / "projects.db")
+    _upgrade_to(eng, "0007")
+    with eng.begin() as conn:
+        _seed_user_and_run(conn)
+        conn.execute(
+            text(
+                "INSERT INTO conversations (id, user_id, title, model, created_at, updated_at) "
+                "VALUES ('c1', 'u1', 'thread', 'm', '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(text("UPDATE runs SET conversation_id = 'c1' WHERE id = 'r1'"))
+        conn.execute(
+            text(
+                "INSERT INTO files (id, user_id, filename, content_type, size, sha256, storage_key, status, version, meta, created_at) "
+                "VALUES ('f1', 'u1', 'a.txt', 'text/plain', 1, '', 'a.txt', 'ready', 1, '{}', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO artifacts (id, run_id, file_id, role, created_at) VALUES ('a1', 'r1', 'f1', 'output', '2026-01-01')")
+        )
+    run_migrations(eng)
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO projects (id, user_id, name, created_at, updated_at) "
+                "VALUES ('p1', 'u1', 'project', '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(text("UPDATE files SET project_id = 'p1', starred_at = '2026-01-01'"))
+        conn.execute(text("UPDATE conversations SET project_id = 'p1'"))
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+    _downgrade_to(eng, "0007")
+    assert "projects" not in inspect(eng).get_table_names()
+    assert not {"project_id", "starred_at"} & {c["name"] for c in inspect(eng).get_columns("files")}
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT conversation_id FROM runs WHERE id = 'r1'")).scalar() == "c1"
+        assert conn.execute(text("SELECT file_id FROM artifacts WHERE id = 'a1'")).scalar() == "f1"
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+    run_migrations(eng)
+    with eng.connect() as conn:
+        assert compare_metadata(MigrationContext.configure(conn, opts={"compare_type": True}), Base.metadata) == []
+    eng.dispose()

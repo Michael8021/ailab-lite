@@ -217,6 +217,26 @@ eval "$(bash scripts/k8s_secrets.sh env)"
 
 ## 队列与可靠性
 
+栅格图片在 Worker 扫描通过后生成 WebP 缩略图（最长边 480 px，quality 75、method 4，保留透明度、应用 EXIF 方向，动画取第一帧）。
+输入最多 20 MiB / 1600 万像素；SVG、损坏或超限图片跳过缩略图，文件仍可 READY。图片沙箱产物通过同一队列的
+`{"file_id": "...", "thumbnail_only": true}` 单独生成；失败不会改变 READY 状态。
+
+已有图片回填：在 `platform/` 中加载与 API/Worker 相同的数据库、存储及 Redis 配置后运行：
+
+```bash
+AILAB_QUEUE_BACKEND=redis .venv/bin/python -m ailab_platform.worker.backfill_thumbnails --batch-size 200
+```
+
+命令只读账本、按 id 分批入队（批大小 1–1000），选择 READY 且缺少 `meta.thumb_key` 的图片 MIME 或常见栅格扩展名，排除 SVG。
+Worker 使用内部 API 更新元数据；已生成的跳过。可重复运行，尚未消费的重复消息也安全；队列失败记日志并以非零退出，修复后重跑。
+损坏或超限图片保持缺少缩略图，再次回填会再次尝试。单独进程的 memory 队列无法交付给 Worker，命令会拒绝此配置。
+
+`FileOut.thumbnail_url` 有缩略图时为 `/v1/files/{id}/thumbnail`，否则 `null`。此端点仅供拥有者访问 READY 文件，返回
+`image/webp`、`Cache-Control: private, max-age=31536000, immutable` 和基于原始 SHA256 + 格式版本的 ETag；匹配
+`If-None-Match` 返回 304，缺图/非 READY/无权限返回 404。删除文件也删除缩略图对象。
+`GET /v1/files?ids=a&ids=b&limit=200` 可一次获取指定文件（最多 200 个，未知/非本人 id 忽略），与 category/project_id/q 交集筛选；
+默认 limit 仍为 50，顺序仍按创建时间或收藏时间，不按 ids 输入顺序。
+
 队列是 Redis（Valkey 兼容）**Streams + 消费组**，至少一次投递：
 
 - 消费者取出消息后，**处理完才 ack**；超过可见性超时（Agent：`AILAB_RUN_TIMEOUT_SECONDS + 60` 秒；Worker：600 秒）没 ack 的消息会被别的消费者认领，`deliveries` 加一。

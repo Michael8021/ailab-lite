@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 
 class UTCModel(BaseModel):
@@ -108,13 +108,39 @@ class InternalRunDetail(RunDetail):
     personal_skills: list[dict] = Field(default_factory=list)
 
 
+class ProjectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class ProjectOut(UTCModel):
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    conversations: int
+    files: int
+
+
 class ConversationCreate(BaseModel):
+    project_id: str | None = None
     title: str | None = Field(default=None, max_length=200)
     model: str | None = Field(default=None, max_length=120)
 
 
 class ConversationPatch(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    title: str = Field(default=None, min_length=1, max_length=200)
+    project_id: str | None = None
+
+    @model_validator(mode="after")
+    def require_changes(self):
+        if not self.model_fields_set:
+            raise ValueError("at least one field is required")
+        return self
 
 
 class MessageCreate(PromptRequest):
@@ -126,6 +152,7 @@ class MessageCreate(PromptRequest):
 
 class ConversationOut(UTCModel):
     id: str
+    project_id: str | None
     title: str
     model: str
     created_at: datetime
@@ -147,6 +174,8 @@ class EventOut(ORMModel):
 
 class FileOut(ORMModel):
     id: str
+    project_id: str | None
+    starred: bool
     filename: str
     content_type: str
     size: int
@@ -156,6 +185,29 @@ class FileOut(ORMModel):
     meta: dict
     created_at: datetime
     download_url: str = ""
+    thumbnail_url: str | None = None
+
+
+class LibraryFilePatch(BaseModel):
+    starred: bool = None
+    project_id: str | None = None
+
+    @model_validator(mode="after")
+    def require_changes(self):
+        if not self.model_fields_set:
+            raise ValueError("at least one field is required")
+        return self
+
+
+class FileBatch(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=200)
+    action: Literal["star", "unstar", "move", "delete"]
+    project_id: str | None = None
+
+    @field_validator("ids")
+    @classmethod
+    def unique_ids(cls, value):
+        return list(dict.fromkeys(value))
 
 
 class FilePatch(BaseModel):

@@ -6,8 +6,9 @@ import { COOKIE, sameOrigin, UPSTREAM } from "../../../../lib/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const FORWARD_REQUEST_HEADERS = ["content-type", "content-length", "accept", "last-event-id", "x-request-id"];
-const FORWARD_RESPONSE_HEADERS = ["content-type", "content-disposition", "content-length", "x-accel-buffering", "x-request-id"];
+const FORWARD_REQUEST_HEADERS = ["content-type", "content-length", "accept", "last-event-id", "x-request-id", "if-none-match"];
+// cache-control / etag: the API marks what may be kept (immutable thumbnails); everything else stays no-store.
+const FORWARD_RESPONSE_HEADERS = ["content-type", "content-disposition", "content-length", "x-accel-buffering", "x-request-id", "cache-control", "etag"];
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
   const { path } = await ctx.params;
@@ -39,7 +40,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     return NextResponse.json({ detail: "platform API unreachable" }, { status: 502 });
   }
 
-  const out = new Headers({ "cache-control": "no-store" });
+  const out = new Headers({ "cache-control": "no-store" }); // unless the API says otherwise below
   for (const name of FORWARD_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
     if (value) out.set(name, value);

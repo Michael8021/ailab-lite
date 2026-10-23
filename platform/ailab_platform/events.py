@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .models import RunEvent, utcnow
 
 
-def append_event(db: Session, run_id: str, type_: str, payload: dict | None = None) -> RunEvent:
+def append_event(db: Session, run_id: str, type_: str, payload: dict | None = None, *, commit: bool = True) -> RunEvent:
     """Append the next sequenced event for a run in one INSERT.
 
     The sequence is computed by the INSERT's own subquery, so this is one round
@@ -31,7 +31,8 @@ def append_event(db: Session, run_id: str, type_: str, payload: dict | None = No
         )
         try:
             row = db.execute(stmt).one()
-            db.commit()
+            if commit:
+                db.commit()
             return RunEvent(
                 id=row.id,
                 run_id=run_id,
@@ -41,6 +42,8 @@ def append_event(db: Session, run_id: str, type_: str, payload: dict | None = No
                 created_at=created_at,
             )
         except (IntegrityError, OperationalError) as exc:  # pragma: no cover - race path
+            if not commit:
+                raise  # the caller owns this transaction and its rollback
             last_error = exc
             db.rollback()
             time.sleep(0.05 * (attempt + 1))

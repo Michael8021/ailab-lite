@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api, Conversation, Me, Usage } from "../lib/api";
 import { formatTokens, timeAgo } from "../lib/format";
-import { IconFolder, IconLogOut, IconNewChat, IconPanel, IconSettings, IconSparkles } from "./icons";
+import { useProjects } from "../lib/projects";
+import { IconFolder, IconLibrary, IconLogOut, IconNewChat, IconPanel, IconPlus, IconSettings, IconSparkles } from "./icons";
+import ConversationMenu from "./conversation-menu";
+import { NewProjectInput } from "./library/projects";
 
 /** Pages tell the sidebar that the conversation list changed (a new one, a title, a finished answer). */
 export const CONVERSATIONS_CHANGED = "ailab:conversations";
@@ -77,7 +80,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [addingProject, setAddingProject] = useState(false);
+  const projects = useProjects();
   const current = pathname.startsWith("/c/") ? pathname.slice(3) : null;
+  const currentProject = pathname.startsWith("/p/") ? pathname.slice(3) : null;
 
   const load = useCallback(() => api<Conversation[]>("/v1/conversations").then(setConversations).catch(() => undefined), []);
 
@@ -107,13 +113,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (window.innerWidth >= 760) localStorage.setItem("ailab.sidebar", next ? "closed" : "open");
   }
 
-  async function remove(c: Conversation) {
-    if (!confirm(`删除对话「${c.title || "新对话"}」？（产出的文件仍保留在资料库）`)) return;
-    await api(`/v1/conversations/${c.id}`, { method: "DELETE" }).catch(() => undefined);
-    if (c.id === current) router.push("/");
-    load();
-  }
-
   return (
     <div className={`shell ${collapsed ? "collapsed" : ""}`}>
       <aside className="sidebar" aria-label="侧栏">
@@ -131,11 +130,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <IconNewChat size={17} /> 新对话
           </a>
           <a href="/files" className={`side-link ${pathname.startsWith("/files") ? "on" : ""}`}>
-            <IconFolder size={17} /> 资料库
+            <IconLibrary size={17} /> 资料库
           </a>
           <a href="/skills" className={`side-link ${pathname.startsWith("/skills") ? "on" : ""}`}>
             <IconSparkles size={17} /> 技能
           </a>
+        </nav>
+        <div className="side-scroll">
+        <div className="side-section">
+          项目
+          <button className="icon-btn side-add" onClick={() => setAddingProject(true)} aria-label="新建项目" title="新建项目">
+            <IconPlus size={14} />
+          </button>
+        </div>
+        <nav className="side-projects" aria-label="项目">
+          {addingProject ? (
+            <NewProjectInput
+              onCreated={(p) => {
+                setAddingProject(false);
+                router.push(`/p/${p.id}`);
+              }}
+              onCancel={() => setAddingProject(false)}
+            />
+          ) : null}
+          {(projects || []).map((p) => (
+            <a key={p.id} href={`/p/${p.id}`} className={`side-link project ${p.id === currentProject ? "on" : ""}`} title={p.name}>
+              <IconFolder size={16} /> <span className="conv-title">{p.name}</span>
+            </a>
+          ))}
         </nav>
         <div className="side-section">最近</div>
         <nav className="conv-list" aria-label="对话列表">
@@ -146,12 +168,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="conv-title">{c.title || "新对话"}</span>
                 <span className="conv-time">{c.last_status === "running" || c.last_status === "queued" ? "回答中…" : timeAgo(c.updated_at)}</span>
               </a>
-              <button className="link conv-del" aria-label={`删除 ${c.title}`} onClick={() => remove(c)}>
-                ✕
-              </button>
+              <ConversationMenu conv={c} onDeleted={() => c.id === current && router.push("/")} />
             </div>
           ))}
         </nav>
+        </div>
         <UserMenu me={me} />
       </aside>
       <div className="sidebar-scrim" onClick={toggle} aria-hidden="true" />

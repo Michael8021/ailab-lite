@@ -138,8 +138,20 @@ class PlatformClient(_PlatformApi):
     def get_file(self, file_id: str) -> dict:
         return self._send(self._get_file(file_id)).json()
 
-    def get_file_bytes(self, file_id: str) -> bytes:
-        return self._send(self._get_file_bytes(file_id)).content
+    def get_file_bytes(self, file_id: str, *, max_bytes: int | None = None) -> bytes:
+        if max_bytes is None:
+            return self._send(self._get_file_bytes(file_id)).content
+        req = self._get_file_bytes(file_id)
+        with self._http.stream(req.method, req.url, timeout=req.timeout, **req.kwargs) as response:
+            if response.status_code >= 400:
+                response.read()
+                _raise(req.method, req.url, response)
+            data = bytearray()
+            for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                if len(data) + len(chunk) > max_bytes:
+                    raise ValueError("file exceeds bounded read limit")
+                data.extend(chunk)
+            return bytes(data)
 
     def patch_file(self, file_id: str, meta: dict | None = None, status: str | None = None) -> dict:
         return self._send(self._patch_file(file_id, meta, status)).json()

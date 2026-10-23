@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..deps import current_user, get_db
+from ..library import owned_project
+from ..locks import user_critical_section
 from ..models import Conversation, Run, RunStatus, User, utcnow
 from ..run_state import transition_run
 from ..schemas import ConversationCreate, ConversationDetail, ConversationOut, ConversationPatch, MessageCreate, RunDetail
@@ -14,8 +16,6 @@ from .routes_runs import start_run
 from .serializers import run_dict
 
 router = APIRouter(prefix="/v1/conversations", tags=["conversations"])
-
-TITLE_CHARS = 40
 
 
 def _owned(db: Session, conversation_id: str, user: User) -> Conversation:
@@ -32,6 +32,7 @@ def _turns(db: Session, conv: Conversation) -> list[Run]:
 def conversation_out(conv: Conversation, last_status: str | None = None) -> dict:
     return {
         "id": conv.id,
+        "project_id": conv.project_id,
         "title": conv.title,
         "model": conv.model,
         "created_at": conv.created_at,
@@ -54,9 +55,12 @@ def latest_previews(turns: list[Run]) -> list[dict]:
 @router.get("", response_model=list[ConversationOut])
 def list_conversations(
     limit: int = Query(default=100, ge=1, le=300),
+    project_id: str | None = None,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[dict]:
+    if project_id is not None:
+        owned_project(db, project_id, user)
     last_status = (
         select(Run.status)
         .where(Run.conversation_id == Conversation.id)
@@ -66,7 +70,7 @@ def list_conversations(
     )
     rows = db.execute(
         select(Conversation, last_status)
-        .where(Conversation.user_id == user.id, Conversation.deleted_at.is_(None))
+        .where(Conversation.user_id == user.id, Conversation.deleted_at.is_(None), Conversation.project_id == project_id)
         .order_by(Conversation.updated_at.desc())
         .limit(limit)
     ).all()
@@ -75,11 +79,14 @@ def list_conversations(
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 def create_conversation(body: ConversationCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    conv = Conversation(user_id=user.id, title=(body.title or "").strip()[:200], model=body.model or "")
-    db.add(conv)
-    db.commit()
-    db.refresh(conv)
-    return conversation_out(conv)
+    with user_critical_section(db, user.id):
+        if body.project_id is not None:
+            owned_project(db, body.project_id, user)
+        conv = Conversation(user_id=user.id, title=(body.title or "").strip()[:200], model=body.model or "", project_id=body.project_id)
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+        return conversation_out(conv)
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
@@ -97,10 +104,17 @@ def get_conversation(conversation_id: str, user: User = Depends(current_user), d
 def rename_conversation(
     conversation_id: str, body: ConversationPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> dict:
-    conv = _owned(db, conversation_id, user)
-    conv.title = body.title.strip()[:200]
-    db.commit()
-    return conversation_out(conv)
+    with user_critical_section(db, user.id):
+        conv = _owned(db, conversation_id, user)
+        if "project_id" in body.model_fields_set:
+            if body.project_id is not None:
+                owned_project(db, body.project_id, user)
+            conv.project_id = body.project_id
+        if "title" in body.model_fields_set:
+            conv.title = body.title.strip()[:200]
+        conv.updated_at = utcnow()
+        db.commit()
+        return conversation_out(conv)
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,8 +132,5 @@ def delete_conversation(conversation_id: str, user: User = Depends(current_user)
 @router.post("/{conversation_id}/messages", response_model=RunDetail, status_code=status.HTTP_201_CREATED)
 def send_message(conversation_id: str, body: MessageCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     conv = _owned(db, conversation_id, user)
-    if not conv.title:
-        first_line = body.prompt.strip().splitlines()[0] if body.prompt.strip() else "新对话"
-        conv.title = first_line[:TITLE_CHARS] + ("…" if len(first_line) > TITLE_CHARS else "")
     run = start_run(db, user, body.prompt, body.model, body.file_ids, conversation=conv, mode=body.mode, skill=body.skill)
     return run_dict(db, run, detail=True)

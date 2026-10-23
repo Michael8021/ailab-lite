@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     max_active_runs_per_user: int = 2
     max_prompt_chars: int = 8000
     max_upload_bytes: int = 50 * 1024 * 1024
+    max_archive_bytes: int = 1024**3
     max_parse_bytes: int = 20 * 1024 * 1024  # Worker parser cap; bigger files keep metadata only
     # A prompt token the upstream served from its cache costs this fraction of a normal one (design: x0.1).
     cached_token_weight: float = 0.1

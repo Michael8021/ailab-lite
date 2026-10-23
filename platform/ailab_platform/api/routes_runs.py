@@ -20,6 +20,7 @@ from ..config import settings
 from ..db import SessionLocal
 from ..deps import current_user, current_user_short, get_db
 from ..events import append_event, list_events
+from ..library import owned_project
 from ..locks import user_critical_section
 from ..models import Conversation, FileObject, FileStatus, Run, RunEvent, RunStatus, User, utcnow
 from ..queue import get_queue
@@ -98,6 +99,14 @@ def start_run(
             metrics.QUOTA_REJECTIONS.labels("active_runs").inc()
             raise HTTPException(status_code=429, detail="too many active runs for this user")
         if conversation is not None:
+            db.refresh(conversation)  # project deletion may have completed while this request waited
+            if conversation.deleted_at is not None:
+                raise HTTPException(status_code=404, detail="conversation not found")
+            if conversation.project_id is not None:
+                owned_project(db, conversation.project_id, user).updated_at = utcnow()
+            if not conversation.title:
+                first_line = prompt.strip().splitlines()[0] if prompt.strip() else "新对话"
+                conversation.title = first_line[:40] + ("…" if len(first_line) > 40 else "")
             busy = db.scalar(
                 select(func.count()).select_from(Run).where(Run.conversation_id == conversation.id, Run.status.in_(RunStatus.ACTIVE))
             )

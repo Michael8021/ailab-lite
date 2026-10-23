@@ -36,6 +36,7 @@ def transition_run(
     error: str | None = None,
     result: dict | None = None,
     reason: str = "canceled",
+    commit: bool = True,
 ) -> tuple[Run, bool]:
     """Move a run to ``new_status``. Returns (run, changed)."""
     run = db.get(Run, run_id)
@@ -59,7 +60,10 @@ def transition_run(
     won = db.execute(
         update(Run).where(Run.id == run_id, Run.status == run.status).values(**values).execution_options(synchronize_session=False)
     ).rowcount
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(run)
     if not won:
         return run, False  # someone else moved it first; theirs stands
@@ -70,11 +74,11 @@ def transition_run(
         if started.tzinfo is None:  # SQLite drops tzinfo
             started = started.replace(tzinfo=UTC)
         metrics.RUN_SECONDS.labels(new_status).observe(max(0.0, (now - started).total_seconds()))
-    append_event(db, run.id, "run.status", {"status": run.status})
+    append_event(db, run.id, "run.status", {"status": run.status}, commit=commit)
     if new_status == RunStatus.SUCCEEDED:
-        append_event(db, run.id, "run.completed", {"summary": run.summary, "result": run.result})
+        append_event(db, run.id, "run.completed", {"summary": run.summary, "result": run.result}, commit=commit)
     elif new_status == RunStatus.FAILED:
-        append_event(db, run.id, "run.failed", {"error": run.error})
+        append_event(db, run.id, "run.failed", {"error": run.error}, commit=commit)
     elif new_status == RunStatus.CANCELED:
-        append_event(db, run.id, "run.canceled", {"reason": reason})
+        append_event(db, run.id, "run.canceled", {"reason": reason}, commit=commit)
     return run, True

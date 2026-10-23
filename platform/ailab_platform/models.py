@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -83,14 +84,35 @@ class ApiToken(Base):
     user: Mapped[User] = relationship(back_populates="tokens")
 
 
+class Project(Base):
+    __tablename__ = "projects"
+    __table_args__ = (Index("ix_projects_user_updated", "user_id", "updated_at"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("prj"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Conversation(Base):
     """A chat thread. Each user message starts one Run (a turn); turns share history and a sandbox workspace."""
 
     __tablename__ = "conversations"
-    __table_args__ = (Index("ix_conversations_user_updated", "user_id", "updated_at"),)
+    __table_args__ = (
+        Index("ix_conversations_user_updated", "user_id", "updated_at"),
+        Index(
+            "ix_conversations_user_project_live",
+            "user_id",
+            "project_id",
+            sqlite_where=text("deleted_at IS NULL AND project_id IS NOT NULL"),
+            postgresql_where=text("deleted_at IS NULL AND project_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("cnv"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="")
     model: Mapped[str] = mapped_column(String(120), default="")  # the last model picked here
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -140,10 +162,29 @@ class RunEvent(Base):
 
 class FileObject(Base):
     __tablename__ = "files"
-    __table_args__ = (Index("ix_files_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_files_user_created", "user_id", "created_at"),
+        Index(
+            "ix_files_user_starred",
+            "user_id",
+            "starred_at",
+            sqlite_where=text("starred_at IS NOT NULL"),
+            postgresql_where=text("starred_at IS NOT NULL"),
+        ),
+        Index("ix_files_user_project_created", "user_id", "project_id", "created_at"),
+        Index(
+            "ix_files_images_user_created",
+            "user_id",
+            "created_at",
+            sqlite_where=text("content_type LIKE 'image/%'"),
+            postgresql_where=text("content_type LIKE 'image/%'"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("fil"))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, nullable=True)
+    starred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
     size: Mapped[int] = mapped_column(Integer, default=0)

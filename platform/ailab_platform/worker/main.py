@@ -49,7 +49,12 @@ def _patch(file_id: str, **kw) -> None:
 
 
 def _handle(queue, msg, file_id) -> None:
+    thumbnail_only = msg.payload.get("thumbnail_only") is True
     if file_id and msg.deliveries > settings.file_max_attempts:
+        if thumbnail_only:
+            log.warning("abandoning thumbnail for %s after %d attempts", file_id, msg.deliveries - 1)
+            queue.ack(settings.file_queue, msg)
+            return
         log.error("file %s could not be scanned after %d attempts; rejecting it", file_id, msg.deliveries - 1)
         try:
             _patch(
@@ -66,7 +71,7 @@ def _handle(queue, msg, file_id) -> None:
     if file_id:
         started = time.perf_counter()
         try:
-            result = process_file(file_id)
+            result = process_file(file_id, thumbnail_only=True) if thumbnail_only else process_file(file_id)
             log.info("processed file %s: %s", file_id, result)
             outcome = "rejected" if "rejected" in result else "skipped" if "skipped" in result else "ready"
             metrics.FILES.labels(outcome).inc()
@@ -75,6 +80,8 @@ def _handle(queue, msg, file_id) -> None:
             # Stay quarantined (pending) and un-acked: redelivered after the visibility timeout.
             log.exception("file %s processing failed", file_id)
             metrics.FILES.labels("error").inc()
+            if thumbnail_only:
+                return  # retry without changing an already usable file's status/processing metadata
             try:
                 _patch(file_id, meta={"processing": "error"})
             except Exception:
