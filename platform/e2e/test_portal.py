@@ -78,7 +78,7 @@ def test_the_static_api_token_is_not_a_password(page, context, stack) -> None:
 
 def test_login_returns_to_the_page_that_was_asked_for(page, stack) -> None:
     login(page, stack, path="/files")
-    page.wait_for_selector("input[type=file]")
+    page.get_by_role("button", name="上传", exact=True).wait_for()
     assert page.url.endswith("/files")
 
 
@@ -284,7 +284,8 @@ def test_a_conversation_can_be_deleted(logged_in, stack) -> None:
     _wait_for_turns(page, 1)
     page.on("dialog", lambda d: d.accept())
     page.hover(f".conv-item:has(a[href='/c/{conv}'])")
-    page.click(f".conv-item:has(a[href='/c/{conv}']) .conv-del")
+    page.locator(f".conv-item:has(a[href='/c/{conv}'])").get_by_role("button", name=re.compile(r"^更多操作 ")).click()
+    page.get_by_role("menuitem", name="删除", exact=True).click()
     page.wait_for_url(stack.portal + "/")
     page.wait_for_selector(".chat-home")
     assert page.locator(f".conv-item a[href='/c/{conv}']").count() == 0
@@ -294,7 +295,7 @@ def test_a_conversation_can_be_deleted(logged_in, stack) -> None:
 
 
 def _row(page, filename: str):
-    return page.locator(".file-row", has_text=filename)
+    return page.locator(".lib-row", has_text=filename)
 
 
 def test_an_upload_is_scanned_then_downloadable_then_deletable(logged_in, stack, tmp_path) -> None:
@@ -306,13 +307,15 @@ def test_an_upload_is_scanned_then_downloadable_then_deletable(logged_in, stack,
     page.set_input_files("input[type=file]", str(path))
     row = _row(page, name)
     row.wait_for(timeout=15000)
-    row.locator(".status:has-text('可用')").wait_for(timeout=20000)  # quarantined (scanning) until the Worker is done
+    download_link = row.get_by_role("link", name=f"下载 {name}", exact=True)
+    download_link.wait_for(timeout=20000)  # only available once the Worker has scanned the file
     with page.expect_download() as download:
-        row.locator("a:has-text('下载')").click()
+        download_link.click()
     assert open(download.value.path(), encoding="utf-8").read() == "hello from the browser test\n"
 
     page.on("dialog", lambda d: d.accept())
-    row.locator("button:has-text('删除')").click()
+    row.get_by_role("button", name=f"更多操作 {name}", exact=True).click()
+    row.get_by_role("menuitem", name="删除", exact=True).click()
     page.wait_for_function("(n) => !document.body.innerText.includes(n)", arg=name, timeout=15000)
 
 
@@ -326,14 +329,15 @@ def test_an_infected_upload_is_rejected_and_cannot_be_downloaded(logged_in, stac
     row = _row(page, name)
     row.wait_for(timeout=15000)
     row.locator(".status:has-text('已拒绝')").wait_for(timeout=20000)
-    assert row.locator("a:has-text('下载')").count() == 0
+    assert row.get_by_role("link", name=f"下载 {name}", exact=True).count() == 0
     file_id = page.evaluate(
         """async (n) => { const r = await fetch('/api/v1/files'); const l = await r.json(); return l.find(f => f.filename === n).id }""",
         name,
     )
     assert page.request.get(f"{stack.portal}/api/v1/files/{file_id}/content").status == 409
     page.on("dialog", lambda d: d.accept())
-    row.locator("button:has-text('删除')").click()
+    row.get_by_role("button", name=f"更多操作 {name}", exact=True).click()
+    row.get_by_role("menuitem", name="删除", exact=True).click()
     page.wait_for_function("(n) => !document.body.innerText.includes(n)", arg=name, timeout=15000)
 
 
@@ -454,7 +458,7 @@ def test_attachment_upload_and_scan_responses_cannot_race_with_send_or_remove(lo
     page = logged_in
     pending = {}
     page.route("**/api/v1/files", lambda route: pending.update(upload=route))
-    page.route("**/api/v1/files/deferred-file", lambda route: pending.update(scan=route))
+    page.route(re.compile(r"/api/v1/files\?.*\bids=deferred-file(?:&|$)"), lambda route: pending.update(scan=route))
     note = tmp_path / "deferred.txt"
     note.write_text("still uploading", encoding="utf-8")
     page.fill("textarea", "请读取附件")
@@ -468,8 +472,9 @@ def test_attachment_upload_and_scan_responses_cannot_race_with_send_or_remove(lo
     while "scan" not in pending and time.monotonic() < deadline:
         page.wait_for_timeout(50)
     assert "scan" in pending
+    assert page.get_by_role("button", name="发送", exact=True).is_disabled()
     page.get_by_role("button", name="移除 deferred.txt", exact=True).click()
-    pending["scan"].fulfill(json={"id": "deferred-file", "filename": note.name, "status": "ready"})
+    pending["scan"].fulfill(json=[{"id": "deferred-file", "filename": note.name, "status": "ready"}])
     page.wait_for_timeout(200)
     assert page.locator(".composer-box .attach-chip").count() == 0
     assert page.get_by_role("button", name="发送", exact=True).is_enabled()
@@ -512,7 +517,7 @@ def test_a_personal_skill_uploaded_to_the_library_can_be_picked(logged_in, stack
     assert name in row.inner_text()
 
     page.goto(stack.portal + "/files")  # it is a file in the library
-    page.wait_for_selector(".skill-file-chip:has-text('周报助手')")
+    page.get_by_role("link", name="个人技能 · 周报助手", exact=True).wait_for()
 
     page.goto(stack.portal + "/")
     page.click(".skill-chip:has-text('周报助手')")

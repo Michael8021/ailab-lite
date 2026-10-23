@@ -78,3 +78,11 @@ macOS 的 mock 沙箱使用宿主 shell，需 GNU coreutils/findutils（stat -c�
 - Portal 代理原先对所有响应强制 `no-store`，连 API 的 immutable 预览图都缓存不了。现在会透传 `cache-control`、`etag` 和 `if-none-match`；API 未声明时仍是 `no-store`。
 - 缩略图像素上限分格式：JPEG 走 `draft()`，最低按 1/8 比例解码，上限 128 MP；PNG/GIF/WebP 等需要全尺寸解码，上限 16 MP（Worker pod 256 MiB）。只设一个 16 MP 上限会让 24–48 MP 的手机照片都没有缩略图。
 - 前端不会为了填一个小图标去加载大图原文件：没有缩略图时只内联显示 ≤256 KB 的图片（例如 SVG），否则显示类型色块。只有打开大图查看时才加载原图。
+
+## 2026-10-23 PR 合并检查
+
+- fork PR 的 CI 可能显示 `action_required`，而 PR 检查列表为空、合并状态为 `UNSTABLE`；这表示工作流等待维护者批准，不代表测试已通过。协作者权限生效后，先批准已有 workflow run，再核对实际检查结果。
+- #26 基于 #25。依次使用 merge commit 保留提交祖先关系，避免 squash/rebase 后后续 PR 重复展示或冲突；每次合并前重新核对 head SHA、base 和检查状态。
+- GitHub App 连接器与本机 `gh` 使用不同权限。连接器合并返回 `Resource not accessible by integration` 时，先确认本机账号仍有 WRITE 权限，再通过 `gh pr merge --match-head-commit <已验证 SHA>` 合并；不要将连接器的权限错误误判为协作者权限未生效。
+- 资料库改版后要同步 E2E：上传 input 是隐藏的，以可见「上传」按钮确认登录；文件行是 `.lib-row`，可用后才出现带文件名的下载链接；文件/会话删除经「更多操作」菜单；个人技能显示在资料元数据链接中。扫描 mock 必须匹配带 ids 的批量 GET 并返回数组，继续断言上传/扫描期间不能发送、移除附件后旧响应不能复活附件。
+- #26 原 CI 的 6 项 E2E 失败来自上述旧定位器/旧 mock。更新后本地生产构建 + 真实服务/独立 Redis 完整 E2E：34 passed；Ruff check/format、diff check 通过。未改产品代码。
