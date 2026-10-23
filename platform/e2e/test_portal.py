@@ -488,18 +488,22 @@ def test_skills_can_be_switched_off_and_their_buttons_go_away(logged_in, stack) 
     switch = ppt.locator("button[role=switch]")
     assert switch.get_attribute("aria-checked") == "true"
     try:
-        switch.click()
-        page.wait_for_function("() => document.querySelector('.skill-row .switch').getAttribute('aria-checked') === 'false'")
+        with page.expect_response(lambda r: r.request.method == "PUT" and r.url.endswith("/api/v1/skills/pptx")) as saved:
+            switch.click()
+        assert saved.value.ok  # the optimistic switch alone does not mean the setting was saved
         page.reload()  # saved on the server, not just in the page
         page.wait_for_selector(".skill-row.off:has-text('演示文稿（PPT）')")
         page.goto(stack.portal + "/")
         page.wait_for_selector(".skill-chip:has-text('Excel 表格')")
-        assert page.locator(".skill-chip:has-text('PPT 生成')").count() == 0
+        # Default chips render before the asynchronous skill list arrives.
+        page.locator(".skill-chip:has-text('PPT 生成')").wait_for(state="detached", timeout=15000)
     finally:
         page.goto(stack.portal + "/skills")
         page.wait_for_selector(".skill-row")
         if ppt.locator("button[role=switch]").get_attribute("aria-checked") == "false":
-            ppt.locator("button[role=switch]").click()
+            with page.expect_response(lambda r: r.request.method == "PUT" and r.url.endswith("/api/v1/skills/pptx")) as restored:
+                switch.click()
+            assert restored.value.ok
             page.wait_for_selector(".skill-row:not(.off):has-text('演示文稿（PPT）')")
 
 
